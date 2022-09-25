@@ -1,8 +1,10 @@
 pub mod ast;
+pub mod interpreter;
 pub mod parser;
 pub mod scanner;
 pub mod tokens;
 
+use interpreter::Interpreter;
 use parser::Parser;
 use scanner::Scanner;
 use std::fs;
@@ -37,7 +39,12 @@ impl Lox {
         let mut parser = Parser::new(tokens);
         let expr = parser.parse()?;
 
-        println!("{}", expr.to_string());
+        let interpreter = Interpreter;
+        match interpreter.evaulate(expr) {
+            Ok(val) => println!("{val}"),
+            Err(e) => self.error(e.line, e.message),
+        }
+        // println!("{}", expr.to_string());
 
         Ok(())
     }
