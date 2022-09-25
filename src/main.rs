@@ -1,6 +1,9 @@
+pub mod ast;
+pub mod parser;
 pub mod scanner;
 pub mod tokens;
 
+use parser::Parser;
 use scanner::Scanner;
 use std::fs;
 
@@ -13,10 +16,10 @@ impl Lox {
         Lox { had_error: false }
     }
 
-    pub fn run_file(&mut self, path: &str) {
+    pub fn run_file(&mut self, path: &str) -> Result<(), String> {
         let s =
             fs::read_to_string(path).expect(format!("Failed to read from file: {}", path).as_str());
-        self.run(s);
+        self.run(s)
     }
 
     fn error(&mut self, line: usize, message: String) {
@@ -28,17 +31,22 @@ impl Lox {
         self.had_error = true;
     }
 
-    fn run(&mut self, source: String) {
+    fn run(&mut self, source: String) -> Result<(), String> {
         let scanner = Scanner::new(self, source);
         let tokens = scanner.scan_tokens();
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse()?;
 
-        for tok in tokens {
-            println!("{tok}");
-        }
+        println!("{}", expr.to_string());
+
+        Ok(())
     }
 }
 
 fn main() {
     let mut lox = Lox::new();
-    lox.run_file("sample.lox");
+    if let Err(e) = lox.run_file("sample.lox") {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    }
 }

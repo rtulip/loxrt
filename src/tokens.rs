@@ -43,9 +43,56 @@ pub enum TokenType {
     EoF,
 }
 
-#[derive(Debug)]
+impl PartialEq for TokenType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (TokenType::LeftParen, TokenType::LeftParen)
+            | (TokenType::RightParen, TokenType::RightParen)
+            | (TokenType::LeftBrace, TokenType::LeftBrace)
+            | (TokenType::RightBrace, TokenType::RightBrace)
+            | (TokenType::Comma, TokenType::Comma)
+            | (TokenType::Dot, TokenType::Dot)
+            | (TokenType::Minus, TokenType::Minus)
+            | (TokenType::Plus, TokenType::Plus)
+            | (TokenType::Semicolon, TokenType::Semicolon)
+            | (TokenType::Slash, TokenType::Slash)
+            | (TokenType::Star, TokenType::Star)
+            | (TokenType::Bang, TokenType::Bang)
+            | (TokenType::BangEqual, TokenType::BangEqual)
+            | (TokenType::Equal, TokenType::Equal)
+            | (TokenType::EqualEqual, TokenType::EqualEqual)
+            | (TokenType::Greater, TokenType::Greater)
+            | (TokenType::GreaterEqual, TokenType::GreaterEqual)
+            | (TokenType::Less, TokenType::Less)
+            | (TokenType::LessEqual, TokenType::LessEqual)
+            | (TokenType::Identifier(_), TokenType::Identifier(_))
+            | (TokenType::Str(_), TokenType::Str(_))
+            | (TokenType::Number(_), TokenType::Number(_))
+            | (TokenType::And, TokenType::And)
+            | (TokenType::Class, TokenType::Class)
+            | (TokenType::Else, TokenType::Else)
+            | (TokenType::False, TokenType::False)
+            | (TokenType::Fun, TokenType::Fun)
+            | (TokenType::For, TokenType::For)
+            | (TokenType::If, TokenType::If)
+            | (TokenType::Nil, TokenType::Nil)
+            | (TokenType::Or, TokenType::Or)
+            | (TokenType::Print, TokenType::Print)
+            | (TokenType::Return, TokenType::Return)
+            | (TokenType::Super, TokenType::Super)
+            | (TokenType::This, TokenType::This)
+            | (TokenType::True, TokenType::True)
+            | (TokenType::Var, TokenType::Var)
+            | (TokenType::While, TokenType::While)
+            | (TokenType::EoF, TokenType::EoF) => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Token {
-    tok_typ: TokenType,
+    pub tok_typ: TokenType,
     _lexeme: String,
     pub line: usize,
 }
