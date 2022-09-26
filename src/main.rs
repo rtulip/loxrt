@@ -18,13 +18,13 @@ impl Lox {
         Lox
     }
 
-    pub fn run_file(&self, path: &str) -> Result<(), Vec<LoxError>> {
+    pub fn run_file(&self, path: &str) -> Result<(), LoxError> {
         let s =
             fs::read_to_string(path).expect(format!("Failed to read from file: {}", path).as_str());
         self.run(s)
     }
 
-    fn run(&self, source: String) -> Result<(), Vec<LoxError>> {
+    fn run(&self, source: String) -> Result<(), LoxError> {
         let scanner = Scanner::new(source);
         let tokens = scanner.scan_tokens()?;
         let mut parser = Parser::new(tokens);
@@ -38,13 +38,8 @@ impl Lox {
 
 fn main() {
     let lox = Lox::new();
-    if let Err(errors) = lox.run_file("sample.lox") {
-        for e in &errors {
-            e.report();
-        }
-
-        if let Some(e) = errors.last() {
-            e.exit();
-        }
+    if let Err(e) = lox.run_file("sample.lox") {
+        e.report();
+        e.exit();
     }
 }

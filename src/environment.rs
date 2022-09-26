@@ -1,4 +1,4 @@
-use crate::error::{LoxError, LoxErrorCode};
+use crate::error::LoxError;
 use crate::interpreter::Types;
 use crate::tokens::Token;
 use std::cell::RefCell;
@@ -30,21 +30,20 @@ impl Environment {
         self.values.insert(name, value);
     }
 
-    pub fn get(&self, token: &Token) -> Result<Types, Vec<LoxError>> {
+    pub fn get(&self, token: &Token) -> Result<Types, LoxError> {
         if self.values.contains_key(&token.lexeme) {
             Ok(self.values.get(&token.lexeme).unwrap().clone())
         } else if self.parent.is_some() {
             self.parent.as_ref().unwrap().borrow().get(token)
         } else {
-            LoxError::new(
+            LoxError::new_runtime(
                 token.line,
                 format!("Undefined variable `{}`.", token.lexeme),
-                LoxErrorCode::InterpreterError,
             )
         }
     }
 
-    pub fn set(&mut self, token: &Token, value: Types) -> Result<(), Vec<LoxError>> {
+    pub fn set(&mut self, token: &Token, value: Types) -> Result<(), LoxError> {
         if self.values.contains_key(&token.lexeme) {
             *self.values.get_mut(&token.lexeme).unwrap() = value;
             Ok(())
@@ -56,10 +55,9 @@ impl Environment {
                 .set(token, value)?;
             Ok(())
         } else {
-            LoxError::new(
+            LoxError::new_runtime(
                 token.line,
                 format!("Undefined variable: `{}`.", token.lexeme),
-                LoxErrorCode::InterpreterError,
             )
         }
     }

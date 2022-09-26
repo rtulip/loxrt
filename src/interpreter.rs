@@ -1,6 +1,6 @@
 use crate::ast::{Expr, Stmt};
 use crate::environment::Environment;
-use crate::error::{LoxError, LoxErrorCode};
+use crate::error::LoxError;
 use crate::tokens::{Token, TokenType};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -8,17 +8,14 @@ use std::time::SystemTime;
 
 pub trait Callable {
     fn airity(&self) -> usize;
-    fn call(
-        &self,
-        interpreter: &mut Interpreter,
-        arguments: Vec<Types>,
-    ) -> Result<Types, Vec<LoxError>>;
+    fn call(&self, interpreter: &mut Interpreter, arguments: Vec<Types>)
+        -> Result<Types, LoxError>;
     fn to_string(&self) -> String;
 }
 
 impl<F> Callable for F
 where
-    F: Fn() -> Result<Types, Vec<LoxError>>,
+    F: Fn() -> Result<Types, LoxError>,
 {
     fn airity(&self) -> usize {
         0
@@ -28,7 +25,7 @@ where
         &self,
         _interpreter: &mut Interpreter,
         _arguments: Vec<Types>,
-    ) -> Result<Types, Vec<LoxError>> {
+    ) -> Result<Types, LoxError> {
         self()
     }
 
@@ -58,14 +55,17 @@ impl Callable for LoxFunction {
         &self,
         interpreter: &mut Interpreter,
         mut arguments: Vec<Types>,
-    ) -> Result<Types, Vec<LoxError>> {
+    ) -> Result<Types, LoxError> {
         let env = Environment::new_child(&interpreter.global_env);
         arguments
             .drain(..)
             .enumerate()
             .for_each(|(i, arg)| env.borrow_mut().define(self.params[i].lexeme.clone(), arg));
-        interpreter.execute_block(&self.body, env)?;
-        Ok(Types::Nil)
+        match interpreter.execute_block(&self.body, env) {
+            Err(LoxError::ReturnError(typ)) => return Ok(typ),
+            Err(e) => return Err(e),
+            _ => Ok(Types::Nil),
+        }
     }
 
     fn to_string(&self) -> String {
@@ -102,47 +102,31 @@ impl Types {
             _ => true,
         }
     }
-    pub fn number(&self, token: &Token) -> Result<f64, Vec<LoxError>> {
+    pub fn number(&self, token: &Token) -> Result<f64, LoxError> {
         match self {
             Types::Number(f) => Ok(*f),
-            _ => LoxError::new(
-                token.line,
-                format!("Expected Number but found {self}"),
-                LoxErrorCode::InterpreterError,
-            ),
+            _ => LoxError::new_runtime(token.line, format!("Expected Number but found {self}")),
         }
     }
 
-    pub fn bool(&self, token: &Token) -> Result<bool, Vec<LoxError>> {
+    pub fn bool(&self, token: &Token) -> Result<bool, LoxError> {
         match self {
             Types::Bool(b) => Ok(*b),
-            _ => LoxError::new(
-                token.line,
-                format!("Expected Bool but found {self}"),
-                LoxErrorCode::InterpreterError,
-            ),
+            _ => LoxError::new_runtime(token.line, format!("Expected Bool but found {self}")),
         }
     }
 
-    pub fn string(&self, token: &Token) -> Result<String, Vec<LoxError>> {
+    pub fn string(&self, token: &Token) -> Result<String, LoxError> {
         match self {
             Types::String(s) => Ok(s.clone()),
-            _ => LoxError::new(
-                token.line,
-                format!("Expected String but found {self}"),
-                LoxErrorCode::InterpreterError,
-            ),
+            _ => LoxError::new_runtime(token.line, format!("Expected String but found {self}")),
         }
     }
 
-    pub fn callable(&self, token: &Token) -> Result<Rc<Box<dyn Callable>>, Vec<LoxError>> {
+    pub fn callable(&self, token: &Token) -> Result<Rc<Box<dyn Callable>>, LoxError> {
         match self {
             Types::Callable(c) => Ok(c.clone()),
-            _ => LoxError::new(
-                token.line,
-                format!("Expected Callable but found {self}"),
-                LoxErrorCode::InterpreterError,
-            ),
+            _ => LoxError::new_runtime(token.line, format!("Expected Callable but found {self}")),
         }
     }
 }
@@ -176,7 +160,7 @@ pub struct Interpreter {
     environment: Rc<RefCell<Environment>>,
 }
 
-fn clock() -> Result<Types, Vec<LoxError>> {
+fn clock() -> Result<Types, LoxError> {
     match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
         Ok(n) => Ok(Types::Number(n.as_millis() as f64 / 1000.0)),
         Err(_) => panic!("SystemTime before UNIX EPOCH!"),
@@ -196,7 +180,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interpret(&mut self, statements: &Vec<Box<Stmt>>) -> Result<(), Vec<LoxError>> {
+    pub fn interpret(&mut self, statements: &Vec<Box<Stmt>>) -> Result<(), LoxError> {
         for stmt in statements {
             self.execute(&**stmt)?;
         }
@@ -208,14 +192,17 @@ impl Interpreter {
         &mut self,
         block: &Vec<Box<Stmt>>,
         environment: Rc<RefCell<Environment>>,
-    ) -> Result<(), Vec<LoxError>> {
+    ) -> Result<(), LoxError> {
         let prev = self.environment.clone();
         self.environment = environment;
 
         for stmt in block {
-            if let Err(e) = self.execute(&**stmt) {
-                self.environment = prev;
-                return Err(e);
+            match self.execute(&**stmt) {
+                Err(e) => {
+                    self.environment = prev;
+                    return Err(e);
+                }
+                _ => (),
             }
         }
 
@@ -223,7 +210,7 @@ impl Interpreter {
         Ok(())
     }
 
-    pub fn execute(&mut self, stmt: &Stmt) -> Result<(), Vec<LoxError>> {
+    pub fn execute(&mut self, stmt: &Stmt) -> Result<(), LoxError> {
         match stmt {
             Stmt::Expr { expr } => {
                 self.evaulate(expr)?;
@@ -279,12 +266,20 @@ impl Interpreter {
                     .borrow_mut()
                     .define(name.lexeme.clone(), func);
             }
-        }
+            Stmt::Return { value, .. } => {
+                if let Some(value) = value {
+                    let value = self.evaulate(value)?;
+                    return LoxError::new_return(value);
+                } else {
+                    return LoxError::new_return(Types::Nil);
+                }
+            }
+        };
 
         Ok(())
     }
 
-    pub fn evaulate(&mut self, expression: &Box<Expr>) -> Result<Types, Vec<LoxError>> {
+    pub fn evaulate(&mut self, expression: &Box<Expr>) -> Result<Types, LoxError> {
         match **expression {
             Expr::Binary {
                 ref left,
@@ -305,9 +300,9 @@ impl Interpreter {
                         (Types::String(left), Types::String(right)) => {
                             Ok(Types::String(format!("{left}{right}")))
                         }
-                        _ => LoxError::new(
+                        _ => LoxError::new_runtime(
                             operator.line,
-                            format!("Invalid operands for operator `+`.\n\tCannot add `{left}` with `{right}`"),LoxErrorCode::InterpreterError,
+                            format!("Invalid operands for operator `+`.\n\tCannot add `{left}` with `{right}`"),
                         ),
                     },
                     TokenType::Slash => Ok(Types::Number(
@@ -330,7 +325,7 @@ impl Interpreter {
                     )),
                     TokenType::EqualEqual => Ok(Types::Bool(right == left)),
                     TokenType::BangEqual => Ok(Types::Bool(right != left)),
-                    _ => LoxError::new(operator.line, format!("Bad binary operator: {}", operator), LoxErrorCode::InterpreterError),
+                    _ => LoxError::new_runtime(operator.line, format!("Bad binary operator: {}", operator)),
                 }
             }
             Expr::Unary {
@@ -341,17 +336,15 @@ impl Interpreter {
                 match operator.tok_typ {
                     TokenType::Minus => match right {
                         Types::Number(n) => return Ok(Types::Number(-n)),
-                        _ => LoxError::new(
+                        _ => LoxError::new_runtime(
                             operator.line,
                             format!("Cannot perform Unary operator `-` on {right}"),
-                            LoxErrorCode::InterpreterError,
                         ),
                     },
                     TokenType::Bang => return Ok(Types::Bool(!right.is_truty())),
-                    _ => LoxError::new(
+                    _ => LoxError::new_runtime(
                         operator.line,
                         format!("Bad Unary operator {:?}", operator.tok_typ),
-                        LoxErrorCode::InterpreterError,
                     ),
                 }
             }
@@ -362,11 +355,7 @@ impl Interpreter {
                 TokenType::False => Ok(Types::Bool(false)),
                 TokenType::True => Ok(Types::Bool(true)),
                 TokenType::Nil => Ok(Types::Nil),
-                _ => LoxError::new(
-                    value.line,
-                    format!("Bad Token Literal: {value}"),
-                    LoxErrorCode::InterpreterError,
-                ),
+                _ => LoxError::new_runtime(value.line, format!("Bad Token Literal: {value}")),
             },
             Expr::Variable { ref name } => Ok(self.environment.borrow().get(&name)?.clone()),
             Expr::Assignment {
@@ -400,11 +389,7 @@ impl Interpreter {
                             Ok(self.evaulate(right)?)
                         }
                     }
-                    _ => LoxError::new(
-                        operator.line,
-                        format!("Bad operator: {operator}"),
-                        LoxErrorCode::InterpreterError,
-                    ),
+                    _ => LoxError::new_runtime(operator.line, format!("Bad operator: {operator}")),
                 }
             }
             Expr::Call {
@@ -421,14 +406,13 @@ impl Interpreter {
                 let function = callee.callable(paren)?;
 
                 if function.airity() != args.len() {
-                    return LoxError::new(
+                    return LoxError::new_runtime(
                         paren.line,
                         format!(
                             "Expected {} arguments, but got {}",
                             function.airity(),
                             args.len()
                         ),
-                        LoxErrorCode::InterpreterError,
                     );
                 }
                 Ok(function.call(self, args)?)

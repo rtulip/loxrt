@@ -29,6 +29,10 @@ pub enum Stmt {
         params: Vec<Token>,
         body: Vec<Box<Stmt>>,
     },
+    Return {
+        keyword: Token,
+        value: Option<Box<Expr>>,
+    },
 }
 
 #[derive(Debug, Clone)]

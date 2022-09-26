@@ -1,4 +1,4 @@
-use crate::error::{LoxError, LoxErrorCode};
+use crate::error::LoxError;
 use crate::tokens::{Token, TokenType};
 use substring::Substring;
 
@@ -21,7 +21,7 @@ impl Scanner {
         }
     }
 
-    pub fn scan_tokens(mut self) -> Result<Vec<Token>, Vec<LoxError>> {
+    pub fn scan_tokens(mut self) -> Result<Vec<Token>, LoxError> {
         while !self.is_at_end() {
             self.start = self.current;
             self.scan_token()?;
@@ -36,7 +36,7 @@ impl Scanner {
         self.current >= self.source.len()
     }
 
-    fn scan_token(&mut self) -> Result<(), Vec<LoxError>> {
+    fn scan_token(&mut self) -> Result<(), LoxError> {
         let c = self.advance();
         match c {
             '(' => self.add_token(TokenType::LeftParen),
@@ -95,11 +95,7 @@ impl Scanner {
                 } else if c.is_alphabetic() {
                     self.identifier()
                 } else {
-                    return LoxError::new(
-                        self.line,
-                        format!("Unexpected character `{c}`"),
-                        LoxErrorCode::ScannerError,
-                    );
+                    return LoxError::new_scanner(self.line, format!("Unexpected character `{c}`"));
                 }
             }
         }
@@ -138,7 +134,7 @@ impl Scanner {
             .nth(self.current + offset)
             .unwrap_or('\0')
     }
-    fn string(&mut self) -> Result<(), Vec<LoxError>> {
+    fn string(&mut self) -> Result<(), LoxError> {
         while self.peek(0) != '"' && !self.is_at_end() {
             if self.peek(0) == '\n' {
                 self.line += 1;
@@ -147,11 +143,7 @@ impl Scanner {
         }
 
         if self.is_at_end() {
-            return LoxError::new(
-                self.line,
-                String::from("Unterminated String"),
-                LoxErrorCode::ScannerError,
-            );
+            return LoxError::new_scanner(self.line, String::from("Unterminated String"));
         }
 
         self.advance();
@@ -163,7 +155,7 @@ impl Scanner {
         Ok(())
     }
 
-    fn number(&mut self) -> Result<(), Vec<LoxError>> {
+    fn number(&mut self) -> Result<(), LoxError> {
         while self.peek(0).is_ascii_digit() {
             self.advance();
         }
@@ -182,11 +174,7 @@ impl Scanner {
             self.add_token(TokenType::Number(n));
             Ok(())
         } else {
-            LoxError::new(
-                self.line,
-                String::from("Failed to parse number"),
-                LoxErrorCode::ScannerError,
-            )
+            LoxError::new_scanner(self.line, String::from("Failed to parse number"))
         }
     }
 
