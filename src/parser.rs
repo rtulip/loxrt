@@ -65,8 +65,85 @@ impl Parser {
                 stmts: self.block()?,
             })),
             TokenType::If => self.if_statement(),
-            _ => self.expression_statement(),
+            TokenType::While => self.while_statement(),
+            TokenType::For => self.for_statement(),
+            _ => {
+                self.revert();
+                self.expression_statement()
+            }
         }
+    }
+
+    fn for_statement(&mut self) -> Result<Box<Stmt>, Vec<LoxError>> {
+        self.consume(
+            TokenType::LeftParen,
+            String::from("Expected `(` after `for`."),
+        )?;
+        let initializer = match self.advance().tok_typ {
+            TokenType::Semicolon => None,
+            TokenType::Var => Some(self.var_declaration()?),
+            _ => {
+                self.revert();
+                Some(self.expression_statement()?)
+            }
+        };
+
+        let condition = if self.check(TokenType::Semicolon) {
+            None
+        } else {
+            Some(self.expression()?)
+        };
+
+        self.consume(
+            TokenType::Semicolon,
+            String::from("Expect `;` after loop condition."),
+        )?;
+
+        let increment = if self.check(TokenType::Semicolon) {
+            None
+        } else {
+            Some(self.expression()?)
+        };
+
+        self.consume(
+            TokenType::RightParen,
+            String::from("Expect `)` after for clauses."),
+        )?;
+
+        let mut body = self.statement()?;
+
+        if let Some(increment) = increment {
+            body = Box::new(Stmt::Block {
+                stmts: vec![body, Box::new(Stmt::Expr { expr: increment })],
+            });
+        }
+
+        if let Some(condition) = condition {
+            body = Box::new(Stmt::While { condition, body });
+        }
+
+        if let Some(initializer) = initializer {
+            body = Box::new(Stmt::Block {
+                stmts: vec![initializer, body],
+            });
+        }
+
+        Ok(body)
+    }
+
+    fn while_statement(&mut self) -> Result<Box<Stmt>, Vec<LoxError>> {
+        self.consume(
+            TokenType::LeftParen,
+            String::from("Expected `(` after `while`."),
+        )?;
+        let condition = self.expression()?;
+        self.consume(
+            TokenType::RightParen,
+            String::from("Expected `)` after condition"),
+        )?;
+
+        let body = self.statement()?;
+        Ok(Box::new(Stmt::While { condition, body }))
     }
 
     fn if_statement(&mut self) -> Result<Box<Stmt>, Vec<LoxError>> {
@@ -263,34 +340,27 @@ impl Parser {
     }
 
     fn primary(&mut self) -> Result<Box<Expr>, Vec<LoxError>> {
-        if self.matches(vec![
-            TokenType::False,
-            TokenType::True,
-            TokenType::Nil,
-            TokenType::Number(0.0),
-            TokenType::Str(String::from("")),
-        ]) {
-            return Ok(Box::new(Expr::Literal {
-                value: self.previous(),
-            }));
-        }
-        if self.matches(vec![TokenType::LeftParen]) {
-            let expr = self.expression()?;
-            self.consume(
-                TokenType::RightParen,
-                String::from("Expected `)` after expression"),
-            )?;
-            return Ok(Box::new(Expr::Grouping { expr }));
-        } else if self.matches(vec![TokenType::Identifier(String::new())]) {
-            let name = self.previous();
-            return Ok(Box::new(Expr::Variable { name }));
-        } else {
-            let tok = self.peek();
-            LoxError::new(
+        let tok = self.advance();
+        match &tok.tok_typ {
+            TokenType::False
+            | TokenType::True
+            | TokenType::Nil
+            | TokenType::Number(_)
+            | TokenType::Str(_) => Ok(Box::new(Expr::Literal { value: tok })),
+            TokenType::LeftParen => {
+                let expr = self.expression()?;
+                self.consume(
+                    TokenType::RightParen,
+                    String::from("Expected `)` after expression"),
+                )?;
+                Ok(Box::new(Expr::Grouping { expr }))
+            }
+            TokenType::Identifier(_) => Ok(Box::new(Expr::Variable { name: tok })),
+            _ => LoxError::new(
                 tok.line,
                 format!("Unexpected Token: {}", tok),
                 LoxErrorCode::ParserError,
-            )
+            ),
         }
     }
 
@@ -317,6 +387,10 @@ impl Parser {
             self.current += 1;
         }
         self.previous()
+    }
+
+    fn revert(&mut self) {
+        self.current -= 1;
     }
 
     fn consume(&mut self, typ: TokenType, message: String) -> Result<Token, Vec<LoxError>> {

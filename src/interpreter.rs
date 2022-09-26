@@ -2,6 +2,7 @@ use crate::ast::{Expr, Stmt};
 use crate::environment::Environment;
 use crate::error::{LoxError, LoxErrorCode};
 use crate::tokens::{Token, TokenType};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 #[derive(Clone)]
@@ -78,7 +79,7 @@ impl std::fmt::Display for Types {
 }
 
 pub struct Interpreter {
-    environment: Rc<Box<Environment>>,
+    environment: Rc<RefCell<Environment>>,
 }
 
 impl Interpreter {
@@ -112,9 +113,7 @@ impl Interpreter {
                 }
 
                 if let TokenType::Identifier(name) = &name.tok_typ {
-                    Rc::get_mut(&mut self.environment)
-                        .expect("It should be safe to access the environment")
-                        .define(name.clone(), value);
+                    self.environment.borrow_mut().define(name.clone(), value);
                 } else {
                     unreachable!()
                 }
@@ -138,6 +137,11 @@ impl Interpreter {
                 } else if else_branch.is_some() {
                     let branch = else_branch.as_ref().unwrap();
                     self.execute(&**branch)?;
+                }
+            }
+            Stmt::While { condition, body } => {
+                while self.evaulate(condition)?.is_truty() {
+                    self.execute(body)?;
                 }
             }
         }
@@ -178,16 +182,16 @@ impl Interpreter {
                         left.number(&operator)? * right.number(&operator)?,
                     )),
                     TokenType::Greater => Ok(Types::Bool(
-                        left.bool(&operator)? > right.bool(&operator)?
+                        left.number(&operator)? > right.number(&operator)?
                     )),
                     TokenType::GreaterEqual => Ok(Types::Bool(
-                        left.bool(&operator)? >= right.bool(&operator)?
+                        left.number(&operator)? >= right.number(&operator)?
                     )),
                     TokenType::Less => Ok(Types::Bool(
-                        left.bool(&operator)? < right.bool(&operator)?
+                        left.number(&operator)? < right.number(&operator)?
                     )),
                     TokenType::LessEqual => Ok(Types::Bool(
-                        left.bool(&operator)? <= right.bool(&operator)?
+                        left.number(&operator)? <= right.number(&operator)?
                     )),
                     TokenType::EqualEqual => Ok(Types::Bool(right == left)),
                     TokenType::BangEqual => Ok(Types::Bool(right != left)),
@@ -229,14 +233,14 @@ impl Interpreter {
                     LoxErrorCode::InterpreterError,
                 ),
             },
-            Expr::Variable { ref name } => Ok(self.environment.get(&name)?.clone()),
+            Expr::Variable { ref name } => Ok(self.environment.borrow().get(&name)?.clone()),
             Expr::Assignment {
                 name: ref name_tok,
                 ref value,
             } => {
                 let result_val = self.evaulate(&value)?;
-                Rc::get_mut(&mut self.environment)
-                    .expect("It should be safe to access the environment")
+                self.environment
+                    .borrow_mut()
                     .set(&name_tok, result_val.clone())?;
                 Ok(result_val)
             }
