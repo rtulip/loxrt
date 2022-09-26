@@ -38,11 +38,22 @@ struct LoxFunction {
     name: Token,
     params: Vec<Token>,
     body: Vec<Box<Stmt>>,
+    closure: Rc<RefCell<Environment>>,
 }
 
 impl LoxFunction {
-    pub fn new(name: Token, params: Vec<Token>, body: Vec<Box<Stmt>>) -> Types {
-        Types::Callable(Rc::new(Box::new(LoxFunction { name, params, body })))
+    pub fn new(
+        name: Token,
+        params: Vec<Token>,
+        body: Vec<Box<Stmt>>,
+        closure: Rc<RefCell<Environment>>,
+    ) -> Types {
+        Types::Callable(Rc::new(Box::new(LoxFunction {
+            name,
+            params,
+            body,
+            closure,
+        })))
     }
 }
 
@@ -56,7 +67,7 @@ impl Callable for LoxFunction {
         interpreter: &mut Interpreter,
         mut arguments: Vec<Types>,
     ) -> Result<Types, LoxError> {
-        let env = Environment::new_child(&interpreter.global_env);
+        let env = Environment::new_child(&self.closure);
         arguments
             .drain(..)
             .enumerate()
@@ -261,7 +272,12 @@ impl Interpreter {
                 }
             }
             Stmt::Function { name, params, body } => {
-                let func = LoxFunction::new(name.clone(), params.clone(), body.clone());
+                let func = LoxFunction::new(
+                    name.clone(),
+                    params.clone(),
+                    body.clone(),
+                    self.environment.clone(),
+                );
                 self.environment
                     .borrow_mut()
                     .define(name.lexeme.clone(), func);
