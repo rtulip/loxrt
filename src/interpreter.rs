@@ -37,6 +37,42 @@ where
     }
 }
 
+struct LoxFunction {
+    name: Token,
+    params: Vec<Token>,
+    body: Vec<Box<Stmt>>,
+}
+
+impl LoxFunction {
+    pub fn new(name: Token, params: Vec<Token>, body: Vec<Box<Stmt>>) -> Types {
+        Types::Callable(Rc::new(Box::new(LoxFunction { name, params, body })))
+    }
+}
+
+impl Callable for LoxFunction {
+    fn airity(&self) -> usize {
+        self.params.len()
+    }
+
+    fn call(
+        &self,
+        interpreter: &mut Interpreter,
+        mut arguments: Vec<Types>,
+    ) -> Result<Types, Vec<LoxError>> {
+        let env = Environment::new_child(&interpreter.global_env);
+        arguments
+            .drain(..)
+            .enumerate()
+            .for_each(|(i, arg)| env.borrow_mut().define(self.params[i].lexeme.clone(), arg));
+        interpreter.execute_block(&self.body, env)?;
+        Ok(Types::Nil)
+    }
+
+    fn to_string(&self) -> String {
+        format!("<fn {}>", self.name.lexeme)
+    }
+}
+
 #[derive(Clone)]
 pub enum Types {
     Number(f64),
@@ -136,6 +172,7 @@ impl std::fmt::Display for Types {
 }
 
 pub struct Interpreter {
+    pub global_env: Rc<RefCell<Environment>>,
     environment: Rc<RefCell<Environment>>,
 }
 
@@ -153,7 +190,10 @@ impl Interpreter {
             String::from("clock"),
             Types::Callable(Rc::new(Box::new(clock))),
         );
-        Interpreter { environment }
+        Interpreter {
+            global_env: environment.clone(),
+            environment,
+        }
     }
 
     pub fn interpret(&mut self, statements: &Vec<Box<Stmt>>) -> Result<(), Vec<LoxError>> {
@@ -161,6 +201,25 @@ impl Interpreter {
             self.execute(&**stmt)?;
         }
 
+        Ok(())
+    }
+
+    pub fn execute_block(
+        &mut self,
+        block: &Vec<Box<Stmt>>,
+        environment: Rc<RefCell<Environment>>,
+    ) -> Result<(), Vec<LoxError>> {
+        let prev = self.environment.clone();
+        self.environment = environment;
+
+        for stmt in block {
+            if let Err(e) = self.execute(&**stmt) {
+                self.environment = prev;
+                return Err(e);
+            }
+        }
+
+        self.environment = prev;
         Ok(())
     }
 
@@ -189,7 +248,10 @@ impl Interpreter {
                 let prev = self.environment.clone();
                 self.environment = Environment::new_child(&prev);
                 for stmt in stmts {
-                    self.execute(stmt)?;
+                    if let Err(e) = self.execute(stmt) {
+                        self.environment = prev;
+                        return Err(e);
+                    }
                 }
 
                 self.environment = prev;
@@ -210,6 +272,12 @@ impl Interpreter {
                 while self.evaulate(condition)?.is_truty() {
                     self.execute(body)?;
                 }
+            }
+            Stmt::Function { name, params, body } => {
+                let func = LoxFunction::new(name.clone(), params.clone(), body.clone());
+                self.environment
+                    .borrow_mut()
+                    .define(name.lexeme.clone(), func);
             }
         }
 

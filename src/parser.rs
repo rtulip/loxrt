@@ -34,10 +34,57 @@ impl Parser {
 
     fn declaration(&mut self) -> Result<Box<Stmt>, Vec<LoxError>> {
         if self.matches(vec![TokenType::Var]) {
-            self.var_declaration()
-        } else {
-            self.statement()
+            return self.var_declaration();
         }
+        if self.matches(vec![TokenType::Fun]) {
+            return self.function("function");
+        }
+        self.statement()
+    }
+
+    fn function(&mut self, kind: &str) -> Result<Box<Stmt>, Vec<LoxError>> {
+        let name = self.consume(
+            TokenType::Identifier(String::new()),
+            format!("Expected {kind} name."),
+        )?;
+
+        self.consume(
+            TokenType::LeftParen,
+            format!("Expected `(` after {kind} name."),
+        )?;
+
+        let mut params = vec![];
+        if !self.check(TokenType::RightParen) {
+            while {
+                if params.len() >= 255 {
+                    return LoxError::new(
+                        self.peek().line,
+                        String::from("Cannot have more than 255 parameters."),
+                        LoxErrorCode::ParserError,
+                    );
+                }
+
+                params.push(self.consume(
+                    TokenType::Identifier(String::new()),
+                    format!("Expected parameter name. Found {}", self.peek()),
+                )?);
+                self.matches(vec![TokenType::Comma])
+            } {}
+        }
+
+        self.consume(
+            TokenType::RightParen,
+            String::from("Expected `)` after parameters."),
+        )?;
+
+        self.consume(
+            TokenType::LeftBrace,
+            String::from("Expected `{` before {kind} body."),
+        )?;
+
+        let body = self.block()?;
+
+        Ok(Box::new(Stmt::Function { name, params, body }))
     }
 
     fn var_declaration(&mut self) -> Result<Box<Stmt>, Vec<LoxError>> {
