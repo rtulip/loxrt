@@ -61,6 +61,10 @@ impl Parser {
     fn statement(&mut self) -> Result<Stmt, Vec<LoxError>> {
         if self.matches(vec![TokenType::Print]) {
             self.print_statement()
+        } else if self.matches(vec![TokenType::LeftBrace]) {
+            Ok(Stmt::Block {
+                stmts: self.block()?,
+            })
         } else {
             self.expression_statement()
         }
@@ -73,6 +77,19 @@ impl Parser {
             String::from("Expected `;` after value."),
         )?;
         Ok(Stmt::Print { expr })
+    }
+
+    fn block(&mut self) -> Result<Vec<Stmt>, Vec<LoxError>> {
+        let mut stmts = vec![];
+        while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+            stmts.push(self.declaration()?);
+        }
+
+        self.consume(
+            TokenType::RightBrace,
+            String::from("Expected `}` at end of block."),
+        )?;
+        Ok(stmts)
     }
 
     fn expression_statement(&mut self) -> Result<Stmt, Vec<LoxError>> {

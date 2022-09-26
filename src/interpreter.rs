@@ -2,6 +2,7 @@ use crate::ast::{Expr, Stmt};
 use crate::environment::Environment;
 use crate::error::{LoxError, LoxErrorCode};
 use crate::tokens::{Token, TokenType};
+use std::rc::Rc;
 
 #[derive(Clone)]
 pub enum Types {
@@ -77,7 +78,7 @@ impl std::fmt::Display for Types {
 }
 
 pub struct Interpreter {
-    environment: Environment,
+    environment: Rc<Box<Environment>>,
 }
 
 impl Interpreter {
@@ -111,10 +112,21 @@ impl Interpreter {
                 }
 
                 if let TokenType::Identifier(name) = &name.tok_typ {
-                    self.environment.define(name.clone(), value);
+                    Rc::get_mut(&mut self.environment)
+                        .expect("It should be safe to access the environment")
+                        .define(name.clone(), value);
                 } else {
                     unreachable!()
                 }
+            }
+            Stmt::Block { stmts } => {
+                let prev = self.environment.clone();
+                self.environment = Environment::new_child(&prev);
+                for stmt in stmts {
+                    self.execute(stmt)?;
+                }
+
+                self.environment = prev;
             }
         }
 
@@ -205,20 +217,15 @@ impl Interpreter {
                     LoxErrorCode::InterpreterError,
                 ),
             },
-            Expr::Variable { ref name } => match self.environment.get(&name.lexeme) {
-                Some(val) => Ok(val.clone()),
-                None => LoxError::new(
-                    name.line,
-                    format!("Unrecognized identifier `{name}`"),
-                    LoxErrorCode::InterpreterError,
-                ),
-            },
+            Expr::Variable { ref name } => Ok(self.environment.get(&name)?.clone()),
             Expr::Assignment {
                 name: ref name_tok,
                 ref value,
             } => {
                 let result_val = self.evaulate(&value)?;
-                self.environment.set(&name_tok, result_val.clone())?;
+                Rc::get_mut(&mut self.environment)
+                    .expect("It should be safe to access the environment")
+                    .set(&name_tok, result_val.clone())?;
                 Ok(result_val)
             }
         }

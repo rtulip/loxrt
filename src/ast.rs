@@ -11,6 +11,9 @@ pub enum Stmt {
         name: Token,
         expr: Option<Box<Expr>>,
     },
+    Block {
+        stmts: Vec<Stmt>,
+    },
 }
 
 pub enum Expr {
