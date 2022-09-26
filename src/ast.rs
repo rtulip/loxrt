@@ -30,7 +30,11 @@ pub enum Expr {
         value: Token,
     },
     Variable {
-        value: Token,
+        name: Token,
+    },
+    Assignment {
+        name: Token,
+        value: Box<Expr>,
     },
 }
 
@@ -45,7 +49,8 @@ impl Expr {
             Expr::Unary { operator, right } => format!("({operator} {})", right.to_string()),
             Expr::Grouping { expr } => format!("(group {})", expr.to_string()),
             Expr::Literal { value } => format!("{value}"),
-            Expr::Variable { value } => format!("{value}"),
+            Expr::Variable { name } => format!("{name}"),
+            Expr::Assignment { name, value } => format!("{name} = {} ", value.to_string()),
         }
     }
 }

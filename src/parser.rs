@@ -85,7 +85,30 @@ impl Parser {
     }
 
     fn expression(&mut self) -> Result<Box<Expr>, Vec<LoxError>> {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Result<Box<Expr>, Vec<LoxError>> {
+        let expr = self.equality()?;
+        if self.matches(vec![TokenType::Equal]) {
+            let equals = self.previous();
+            let assignment = self.assignment()?;
+
+            if let Expr::Variable { name, .. } = *expr {
+                return Ok(Box::new(Expr::Assignment {
+                    name: name.clone(),
+                    value: assignment,
+                }));
+            } else {
+                return LoxError::new(
+                    equals.line,
+                    format!("Invalid assignment target: {}", expr.to_string()),
+                    LoxErrorCode::ParserError,
+                );
+            }
+        }
+
+        return Ok(expr);
     }
 
     fn equality(&mut self) -> Result<Box<Expr>, Vec<LoxError>> {
@@ -186,8 +209,8 @@ impl Parser {
             )?;
             return Ok(Box::new(Expr::Grouping { expr }));
         } else if self.matches(vec![TokenType::Identifier(String::new())]) {
-            let value = self.previous();
-            return Ok(Box::new(Expr::Variable { value }));
+            let name = self.previous();
+            return Ok(Box::new(Expr::Variable { name }));
         } else {
             let tok = self.peek();
             LoxError::new(

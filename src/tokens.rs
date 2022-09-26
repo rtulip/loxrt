@@ -93,7 +93,7 @@ impl PartialEq for TokenType {
 #[derive(Debug, Clone)]
 pub struct Token {
     pub tok_typ: TokenType,
-    _lexeme: String,
+    pub lexeme: String,
     pub line: usize,
 }
 
@@ -101,7 +101,7 @@ impl Token {
     pub fn new(tok_typ: TokenType, lexeme: String, line: usize) -> Self {
         Token {
             tok_typ,
-            _lexeme: lexeme,
+            lexeme: lexeme,
             line,
         }
     }

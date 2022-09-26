@@ -121,7 +121,7 @@ impl Interpreter {
         Ok(())
     }
 
-    pub fn evaulate(&self, expression: &Box<Expr>) -> Result<Types, Vec<LoxError>> {
+    pub fn evaulate(&mut self, expression: &Box<Expr>) -> Result<Types, Vec<LoxError>> {
         match **expression {
             Expr::Binary {
                 ref left,
@@ -205,19 +205,21 @@ impl Interpreter {
                     LoxErrorCode::InterpreterError,
                 ),
             },
-            Expr::Variable { ref value } => {
-                if let TokenType::Identifier(name) = &value.tok_typ {
-                    match self.environment.get(&name) {
-                        Some(val) => Ok(val.clone()),
-                        None => LoxError::new(
-                            value.line,
-                            format!("Unrecognized identifier `{name}`"),
-                            LoxErrorCode::InterpreterError,
-                        ),
-                    }
-                } else {
-                    unreachable!();
-                }
+            Expr::Variable { ref name } => match self.environment.get(&name.lexeme) {
+                Some(val) => Ok(val.clone()),
+                None => LoxError::new(
+                    name.line,
+                    format!("Unrecognized identifier `{name}`"),
+                    LoxErrorCode::InterpreterError,
+                ),
+            },
+            Expr::Assignment {
+                name: ref name_tok,
+                ref value,
+            } => {
+                let result_val = self.evaulate(&value)?;
+                self.environment.set(&name_tok, result_val.clone())?;
+                Ok(result_val)
             }
         }
     }
