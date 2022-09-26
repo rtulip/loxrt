@@ -1,9 +1,8 @@
+use crate::error::{LoxError, LoxErrorCode};
 use crate::tokens::{Token, TokenType};
-use crate::Lox;
 use substring::Substring;
 
-pub struct Scanner<'a> {
-    lox: &'a mut Lox,
+pub struct Scanner {
     source: String,
     tokens: Vec<Token>,
     start: usize,
@@ -11,10 +10,9 @@ pub struct Scanner<'a> {
     line: usize,
 }
 
-impl<'a> Scanner<'a> {
-    pub fn new(lox: &'a mut Lox, source: String) -> Self {
+impl Scanner {
+    pub fn new(source: String) -> Self {
         Scanner {
-            lox,
             source,
             tokens: vec![],
             start: 0,
@@ -23,22 +21,22 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    pub fn scan_tokens(mut self) -> Vec<Token> {
+    pub fn scan_tokens(mut self) -> Result<Vec<Token>, LoxError> {
         while !self.is_at_end() {
             self.start = self.current;
-            self.scan_token();
+            self.scan_token()?;
         }
 
         self.tokens
             .push(Token::new(TokenType::EoF, String::from(""), self.line));
-        self.tokens
+        Ok(self.tokens)
     }
 
     fn is_at_end(&self) -> bool {
         self.current >= self.source.len()
     }
 
-    fn scan_token(&mut self) {
+    fn scan_token(&mut self) -> Result<(), LoxError> {
         let c = self.advance();
         match c {
             '(' => self.add_token(TokenType::LeftParen),
@@ -90,18 +88,22 @@ impl<'a> Scanner<'a> {
             }
             ' ' | '\t' | '\r' => (),
             '\n' => self.line += 1,
-            '"' => self.string(),
+            '"' => self.string()?,
             c => {
                 if c.is_ascii_digit() {
-                    self.number()
+                    self.number()?
                 } else if c.is_alphabetic() {
                     self.identifier()
                 } else {
-                    self.lox
-                        .error(self.line, format!("Unexpected character `{c}`"))
+                    return LoxError::new(
+                        self.line,
+                        format!("Unexpected character `{c}`"),
+                        LoxErrorCode::ScannerError,
+                    );
                 }
             }
         }
+        Ok(())
     }
 
     fn advance(&mut self) -> char {
@@ -136,7 +138,7 @@ impl<'a> Scanner<'a> {
             .nth(self.current + offset)
             .unwrap_or('\0')
     }
-    fn string(&mut self) {
+    fn string(&mut self) -> Result<(), LoxError> {
         while self.peek(0) != '"' && !self.is_at_end() {
             if self.peek(0) == '\n' {
                 self.line += 1;
@@ -145,9 +147,11 @@ impl<'a> Scanner<'a> {
         }
 
         if self.is_at_end() {
-            self.lox
-                .error(self.line, String::from("Unterminated String."));
-            return;
+            return LoxError::new(
+                self.line,
+                String::from("Unterminated String"),
+                LoxErrorCode::ScannerError,
+            );
         }
 
         self.advance();
@@ -155,9 +159,11 @@ impl<'a> Scanner<'a> {
         self.add_token(TokenType::Str(String::from(
             self.source.substring(self.start + 1, self.current - 1),
         )));
+
+        Ok(())
     }
 
-    fn number(&mut self) {
+    fn number(&mut self) -> Result<(), LoxError> {
         while self.peek(0).is_ascii_digit() {
             self.advance();
         }
@@ -174,9 +180,13 @@ impl<'a> Scanner<'a> {
             .parse::<f64>()
         {
             self.add_token(TokenType::Number(n));
+            Ok(())
         } else {
-            self.lox
-                .error(self.line, String::from("Failed to parse number"));
+            LoxError::new(
+                self.line,
+                String::from("Failed to parse number"),
+                LoxErrorCode::ScannerError,
+            )
         }
     }
 

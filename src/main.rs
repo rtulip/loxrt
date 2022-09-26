@@ -1,49 +1,36 @@
 pub mod ast;
+pub mod error;
 pub mod interpreter;
 pub mod parser;
 pub mod scanner;
 pub mod tokens;
 
+use error::LoxError;
 use interpreter::Interpreter;
 use parser::Parser;
 use scanner::Scanner;
 use std::fs;
 
-pub struct Lox {
-    had_error: bool,
-}
-
+pub struct Lox;
 impl Lox {
     pub fn new() -> Self {
-        Lox { had_error: false }
+        Lox
     }
 
-    pub fn run_file(&mut self, path: &str) -> Result<(), String> {
+    pub fn run_file(&self, path: &str) -> Result<(), LoxError> {
         let s =
             fs::read_to_string(path).expect(format!("Failed to read from file: {}", path).as_str());
         self.run(s)
     }
 
-    fn error(&mut self, line: usize, message: String) {
-        self.report(line, String::from(""), message);
-    }
-
-    fn report(&mut self, line: usize, where_: String, message: String) {
-        eprintln!("[line {line}] Error{where_}: {message}");
-        self.had_error = true;
-    }
-
-    fn run(&mut self, source: String) -> Result<(), String> {
-        let scanner = Scanner::new(self, source);
-        let tokens = scanner.scan_tokens();
+    fn run(&self, source: String) -> Result<(), LoxError> {
+        let scanner = Scanner::new(source);
+        let tokens = scanner.scan_tokens()?;
         let mut parser = Parser::new(tokens);
-        let expr = parser.parse()?;
+        let statements = parser.parse()?;
 
         let interpreter = Interpreter;
-        match interpreter.evaulate(expr) {
-            Ok(val) => println!("{val}"),
-            Err(e) => self.error(e.line, e.message),
-        }
+        interpreter.interpret(&statements)?;
         // println!("{}", expr.to_string());
 
         Ok(())
@@ -51,9 +38,8 @@ impl Lox {
 }
 
 fn main() {
-    let mut lox = Lox::new();
+    let lox = Lox::new();
     if let Err(e) = lox.run_file("sample.lox") {
-        eprintln!("Error: {e}");
-        std::process::exit(1);
+        e.report();
     }
 }

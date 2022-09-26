@@ -1,4 +1,5 @@
-use crate::ast::Expr;
+use crate::ast::{Expr, Stmt};
+use crate::error::{LoxError, LoxErrorCode};
 use crate::tokens::{Token, TokenType};
 
 pub struct Parser {
@@ -11,15 +12,47 @@ impl Parser {
         Parser { tokens, current: 0 }
     }
 
-    pub fn parse(&mut self) -> Result<Box<Expr>, String> {
-        self.expression()
+    pub fn parse(&mut self) -> Result<Vec<Stmt>, LoxError> {
+        let mut stmts = vec![];
+
+        while !self.is_at_end() {
+            stmts.push(self.statement()?);
+        }
+
+        Ok(stmts)
     }
 
-    fn expression(&mut self) -> Result<Box<Expr>, String> {
+    fn statement(&mut self) -> Result<Stmt, LoxError> {
+        if self.matches(vec![TokenType::Print]) {
+            self.print_statement()
+        } else {
+            self.expression_statement()
+        }
+    }
+
+    fn print_statement(&mut self) -> Result<Stmt, LoxError> {
+        let expr = self.expression()?;
+        self.consume(
+            TokenType::Semicolon,
+            String::from("Expected `;` after value."),
+        )?;
+        Ok(Stmt::Print { expr })
+    }
+
+    fn expression_statement(&mut self) -> Result<Stmt, LoxError> {
+        let expr = self.expression()?;
+        self.consume(
+            TokenType::Semicolon,
+            String::from("Expected `;` after expression."),
+        )?;
+        Ok(Stmt::Expr { expr })
+    }
+
+    fn expression(&mut self) -> Result<Box<Expr>, LoxError> {
         self.equality()
     }
 
-    fn equality(&mut self) -> Result<Box<Expr>, String> {
+    fn equality(&mut self) -> Result<Box<Expr>, LoxError> {
         let mut expr = self.comparison()?;
         while self.matches(vec![TokenType::BangEqual, TokenType::EqualEqual]) {
             let operator = self.previous();
@@ -34,7 +67,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn comparison(&mut self) -> Result<Box<Expr>, String> {
+    fn comparison(&mut self) -> Result<Box<Expr>, LoxError> {
         let mut expr = self.term()?;
 
         while self.matches(vec![
@@ -55,7 +88,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn term(&mut self) -> Result<Box<Expr>, String> {
+    fn term(&mut self) -> Result<Box<Expr>, LoxError> {
         let mut expr = self.factor()?;
 
         while self.matches(vec![TokenType::Minus, TokenType::Plus]) {
@@ -71,7 +104,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn factor(&mut self) -> Result<Box<Expr>, String> {
+    fn factor(&mut self) -> Result<Box<Expr>, LoxError> {
         let mut expr = self.unary()?;
 
         while self.matches(vec![TokenType::Slash, TokenType::Star]) {
@@ -87,7 +120,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn unary(&mut self) -> Result<Box<Expr>, String> {
+    fn unary(&mut self) -> Result<Box<Expr>, LoxError> {
         if self.matches(vec![TokenType::Bang, TokenType::Minus]) {
             let operator = self.previous();
             let right = self.unary()?;
@@ -97,7 +130,7 @@ impl Parser {
         }
     }
 
-    fn primary(&mut self) -> Result<Box<Expr>, String> {
+    fn primary(&mut self) -> Result<Box<Expr>, LoxError> {
         if self.matches(vec![
             TokenType::False,
             TokenType::True,
@@ -117,7 +150,12 @@ impl Parser {
             )?;
             return Ok(Box::new(Expr::Grouping { expr }));
         } else {
-            Err(format!("Unexpected Token: {}", self.peek()))
+            let tok = self.peek();
+            LoxError::new(
+                tok.line,
+                format!("Unexpected Token: {}", tok),
+                LoxErrorCode::ParserError,
+            )
         }
     }
 
@@ -146,11 +184,11 @@ impl Parser {
         self.previous()
     }
 
-    fn consume(&mut self, typ: TokenType, message: String) -> Result<Token, String> {
+    fn consume(&mut self, typ: TokenType, message: String) -> Result<Token, LoxError> {
         if self.check(typ) {
             Ok(self.advance())
         } else {
-            Err(message)
+            LoxError::new(self.peek().line, message, LoxErrorCode::ParserError)
         }
     }
 

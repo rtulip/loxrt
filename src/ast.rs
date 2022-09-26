@@ -1,5 +1,10 @@
 use crate::tokens::Token;
 
+pub enum Stmt {
+    Expr { expr: Box<Expr> },
+    Print { expr: Box<Expr> },
+}
+
 pub enum Expr {
     Binary {
         left: Box<Expr>,

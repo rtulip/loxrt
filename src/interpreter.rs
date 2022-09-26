@@ -1,4 +1,5 @@
-use crate::ast::Expr;
+use crate::ast::{Expr, Stmt};
+use crate::error::{LoxError, LoxErrorCode};
 use crate::tokens::{Token, TokenType};
 pub struct Interpreter;
 
@@ -17,24 +18,36 @@ impl Types {
             _ => true,
         }
     }
-    pub fn number(&self, token: &Token) -> Result<f64, InterpreterError> {
+    pub fn number(&self, token: &Token) -> Result<f64, LoxError> {
         match self {
             Types::Number(f) => Ok(*f),
-            _ => InterpreterError::new(token.line, format!("Expected Number but found {self}")),
+            _ => LoxError::new(
+                token.line,
+                format!("Expected Number but found {self}"),
+                LoxErrorCode::InterpreterError,
+            ),
         }
     }
 
-    pub fn bool(&self, token: &Token) -> Result<bool, InterpreterError> {
+    pub fn bool(&self, token: &Token) -> Result<bool, LoxError> {
         match self {
             Types::Bool(b) => Ok(*b),
-            _ => InterpreterError::new(token.line, format!("Expected Bool but found {self}")),
+            _ => LoxError::new(
+                token.line,
+                format!("Expected Bool but found {self}"),
+                LoxErrorCode::InterpreterError,
+            ),
         }
     }
 
-    pub fn string(&self, token: &Token) -> Result<String, InterpreterError> {
+    pub fn string(&self, token: &Token) -> Result<String, LoxError> {
         match self {
             Types::String(s) => Ok(s.clone()),
-            _ => InterpreterError::new(token.line, format!("Expected String but found {self}")),
+            _ => LoxError::new(
+                token.line,
+                format!("Expected String but found {self}"),
+                LoxErrorCode::InterpreterError,
+            ),
         }
     }
 }
@@ -55,31 +68,42 @@ impl std::fmt::Display for Types {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Types::Number(n) => write!(f, "{n}"),
-            Types::String(s) => write!(f, "\"{s}\""),
+            Types::String(s) => write!(f, "{s}"),
             Types::Bool(b) => write!(f, "{b}"),
             Types::Nil => write!(f, "Nil"),
         }
     }
 }
 
-pub struct InterpreterError {
-    pub line: usize,
-    pub message: String,
-}
-
-impl InterpreterError {
-    pub fn new<T>(line: usize, message: String) -> Result<T, Self> {
-        Err(InterpreterError { line, message })
-    }
-}
-
 impl Interpreter {
-    pub fn evaulate(&self, expression: Box<Expr>) -> Result<Types, InterpreterError> {
-        match *expression {
+    pub fn interpret(&self, statements: &Vec<Stmt>) -> Result<(), LoxError> {
+        for stmt in statements {
+            self.execute(stmt)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn execute(&self, stmt: &Stmt) -> Result<(), LoxError> {
+        match stmt {
+            Stmt::Expr { expr } => {
+                self.evaulate(expr)?;
+            }
+            Stmt::Print { expr } => {
+                let s = self.evaulate(expr)?;
+                println!("{s}");
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn evaulate(&self, expression: &Box<Expr>) -> Result<Types, LoxError> {
+        match **expression {
             Expr::Binary {
-                left,
-                operator,
-                right,
+                ref left,
+                ref operator,
+                ref right,
             } => {
                 let left = self.evaulate(left)?;
                 let right = self.evaulate(right)?;
@@ -95,9 +119,9 @@ impl Interpreter {
                         (Types::String(left), Types::String(right)) => {
                             Ok(Types::String(format!("{left}{right}")))
                         }
-                        _ => InterpreterError::new(
+                        _ => LoxError::new(
                             operator.line,
-                            format!("Invalid operands for operator `+`.\n\tCannot add `{left}` with `{right}`"),
+                            format!("Invalid operands for operator `+`.\n\tCannot add `{left}` with `{right}`"),LoxErrorCode::InterpreterError,
                         ),
                     },
                     TokenType::Slash => Ok(Types::Number(
@@ -120,32 +144,41 @@ impl Interpreter {
                     )),
                     TokenType::EqualEqual => Ok(Types::Bool(right == left)),
                     TokenType::BangEqual => Ok(Types::Bool(right != left)),
-                    _ => InterpreterError::new(operator.line, format!("Bad binary operator: {}", operator)),
+                    _ => LoxError::new(operator.line, format!("Bad binary operator: {}", operator), LoxErrorCode::InterpreterError),
                 }
             }
-            Expr::Grouping { expr } => self.evaulate(expr),
-            Expr::Literal { value } => match value.tok_typ {
+            Expr::Grouping { ref expr } => self.evaulate(expr),
+            Expr::Literal { ref value } => match &value.tok_typ {
                 TokenType::Str(s) => Ok(Types::String(s.clone())),
-                TokenType::Number(n) => Ok(Types::Number(n)),
+                TokenType::Number(n) => Ok(Types::Number(*n)),
                 TokenType::False => Ok(Types::Bool(false)),
                 TokenType::True => Ok(Types::Bool(true)),
                 TokenType::Nil => Ok(Types::Nil),
-                _ => InterpreterError::new(value.line, format!("Bad Token Literal: {value}")),
+                _ => LoxError::new(
+                    value.line,
+                    format!("Bad Token Literal: {value}"),
+                    LoxErrorCode::InterpreterError,
+                ),
             },
-            Expr::Unary { operator, right } => {
+            Expr::Unary {
+                ref operator,
+                ref right,
+            } => {
                 let right = self.evaulate(right)?;
                 match operator.tok_typ {
                     TokenType::Minus => match right {
                         Types::Number(n) => return Ok(Types::Number(-n)),
-                        _ => InterpreterError::new(
+                        _ => LoxError::new(
                             operator.line,
                             format!("Cannot perform Unary operator `-` on {right}"),
+                            LoxErrorCode::InterpreterError,
                         ),
                     },
                     TokenType::Bang => return Ok(Types::Bool(!right.is_truty())),
-                    _ => InterpreterError::new(
+                    _ => LoxError::new(
                         operator.line,
                         format!("Bad Unary operator {:?}", operator.tok_typ),
+                        LoxErrorCode::InterpreterError,
                     ),
                 }
             }
