@@ -88,9 +88,9 @@ impl Interpreter {
         }
     }
 
-    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<(), Vec<LoxError>> {
+    pub fn interpret(&mut self, statements: &Vec<Box<Stmt>>) -> Result<(), Vec<LoxError>> {
         for stmt in statements {
-            self.execute(stmt)?;
+            self.execute(&**stmt)?;
         }
 
         Ok(())
@@ -127,6 +127,18 @@ impl Interpreter {
                 }
 
                 self.environment = prev;
+            }
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                if self.evaulate(condition)?.is_truty() {
+                    self.execute(then_branch)?;
+                } else if else_branch.is_some() {
+                    let branch = else_branch.as_ref().unwrap();
+                    self.execute(&**branch)?;
+                }
             }
         }
 
@@ -227,6 +239,34 @@ impl Interpreter {
                     .expect("It should be safe to access the environment")
                     .set(&name_tok, result_val.clone())?;
                 Ok(result_val)
+            }
+            Expr::Logical {
+                ref left,
+                ref operator,
+                ref right,
+            } => {
+                let left = self.evaulate(left)?;
+                match operator.tok_typ {
+                    TokenType::Or => {
+                        if left.is_truty() {
+                            Ok(left)
+                        } else {
+                            Ok(self.evaulate(right)?)
+                        }
+                    }
+                    TokenType::And => {
+                        if !left.is_truty() {
+                            Ok(left)
+                        } else {
+                            Ok(self.evaulate(right)?)
+                        }
+                    }
+                    _ => LoxError::new(
+                        operator.line,
+                        format!("Bad operator: {operator}"),
+                        LoxErrorCode::InterpreterError,
+                    ),
+                }
             }
         }
     }

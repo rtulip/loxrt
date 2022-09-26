@@ -12,7 +12,7 @@ impl Parser {
         Parser { tokens, current: 0 }
     }
 
-    pub fn parse(&mut self) -> Result<Vec<Stmt>, Vec<LoxError>> {
+    pub fn parse(&mut self) -> Result<Vec<Box<Stmt>>, Vec<LoxError>> {
         let mut stmts = vec![];
         let mut errors = vec![];
         while !self.is_at_end() {
@@ -32,7 +32,7 @@ impl Parser {
         }
     }
 
-    fn declaration(&mut self) -> Result<Stmt, Vec<LoxError>> {
+    fn declaration(&mut self) -> Result<Box<Stmt>, Vec<LoxError>> {
         if self.matches(vec![TokenType::Var]) {
             self.var_declaration()
         } else {
@@ -40,7 +40,7 @@ impl Parser {
         }
     }
 
-    fn var_declaration(&mut self) -> Result<Stmt, Vec<LoxError>> {
+    fn var_declaration(&mut self) -> Result<Box<Stmt>, Vec<LoxError>> {
         let name = self.consume(
             TokenType::Identifier(String::new()),
             String::from("Expected variable name"),
@@ -55,31 +55,54 @@ impl Parser {
             TokenType::Semicolon,
             String::from("Expected `;` after variable declaration"),
         )?;
-        Ok(Stmt::Var { name, expr })
+        Ok(Box::new(Stmt::Var { name, expr }))
     }
 
-    fn statement(&mut self) -> Result<Stmt, Vec<LoxError>> {
-        if self.matches(vec![TokenType::Print]) {
-            self.print_statement()
-        } else if self.matches(vec![TokenType::LeftBrace]) {
-            Ok(Stmt::Block {
+    fn statement(&mut self) -> Result<Box<Stmt>, Vec<LoxError>> {
+        match self.advance().tok_typ {
+            TokenType::Print => self.print_statement(),
+            TokenType::LeftBrace => Ok(Box::new(Stmt::Block {
                 stmts: self.block()?,
-            })
-        } else {
-            self.expression_statement()
+            })),
+            TokenType::If => self.if_statement(),
+            _ => self.expression_statement(),
         }
     }
 
-    fn print_statement(&mut self) -> Result<Stmt, Vec<LoxError>> {
+    fn if_statement(&mut self) -> Result<Box<Stmt>, Vec<LoxError>> {
+        self.consume(
+            TokenType::LeftParen,
+            String::from("Expected `(` after `if`."),
+        )?;
+        let condition = self.expression()?;
+        self.consume(
+            TokenType::RightParen,
+            String::from("Expected `)` after if condition."),
+        )?;
+
+        let then_branch = self.statement()?;
+        let mut else_branch = None;
+        if self.matches(vec![TokenType::Else]) {
+            else_branch = Some(self.statement()?);
+        }
+
+        Ok(Box::new(Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+        }))
+    }
+
+    fn print_statement(&mut self) -> Result<Box<Stmt>, Vec<LoxError>> {
         let expr = self.expression()?;
         self.consume(
             TokenType::Semicolon,
             String::from("Expected `;` after value."),
         )?;
-        Ok(Stmt::Print { expr })
+        Ok(Box::new(Stmt::Print { expr }))
     }
 
-    fn block(&mut self) -> Result<Vec<Stmt>, Vec<LoxError>> {
+    fn block(&mut self) -> Result<Vec<Box<Stmt>>, Vec<LoxError>> {
         let mut stmts = vec![];
         while !self.check(TokenType::RightBrace) && !self.is_at_end() {
             stmts.push(self.declaration()?);
@@ -92,13 +115,13 @@ impl Parser {
         Ok(stmts)
     }
 
-    fn expression_statement(&mut self) -> Result<Stmt, Vec<LoxError>> {
+    fn expression_statement(&mut self) -> Result<Box<Stmt>, Vec<LoxError>> {
         let expr = self.expression()?;
         self.consume(
             TokenType::Semicolon,
             String::from("Expected `;` after expression."),
         )?;
-        Ok(Stmt::Expr { expr })
+        Ok(Box::new(Stmt::Expr { expr }))
     }
 
     fn expression(&mut self) -> Result<Box<Expr>, Vec<LoxError>> {
@@ -106,7 +129,7 @@ impl Parser {
     }
 
     fn assignment(&mut self) -> Result<Box<Expr>, Vec<LoxError>> {
-        let expr = self.equality()?;
+        let expr = self.or()?;
         if self.matches(vec![TokenType::Equal]) {
             let equals = self.previous();
             let assignment = self.assignment()?;
@@ -126,6 +149,39 @@ impl Parser {
         }
 
         return Ok(expr);
+    }
+
+    fn or(&mut self) -> Result<Box<Expr>, Vec<LoxError>> {
+        let mut expr = self.and()?;
+
+        while self.matches(vec![TokenType::Or]) {
+            let operator = self.previous();
+            let right = self.and()?;
+            expr = Box::new(Expr::Logical {
+                left: expr,
+                operator,
+                right,
+            });
+        }
+
+        Ok(expr)
+    }
+
+    fn and(&mut self) -> Result<Box<Expr>, Vec<LoxError>> {
+        let mut expr = self.equality()?;
+
+        while self.matches(vec![TokenType::And]) {
+            let operator = self.previous();
+            let right = self.equality()?;
+
+            expr = Box::new(Expr::Logical {
+                left: expr,
+                operator,
+                right,
+            });
+        }
+
+        Ok(expr)
     }
 
     fn equality(&mut self) -> Result<Box<Expr>, Vec<LoxError>> {

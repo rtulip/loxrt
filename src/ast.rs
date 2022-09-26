@@ -12,7 +12,12 @@ pub enum Stmt {
         expr: Option<Box<Expr>>,
     },
     Block {
-        stmts: Vec<Stmt>,
+        stmts: Vec<Box<Stmt>>,
+    },
+    If {
+        condition: Box<Expr>,
+        then_branch: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
     },
 }
 
@@ -39,12 +44,22 @@ pub enum Expr {
         name: Token,
         value: Box<Expr>,
     },
+    Logical {
+        left: Box<Expr>,
+        operator: Token,
+        right: Box<Expr>,
+    },
 }
 
 impl Expr {
     pub fn to_string(&self) -> String {
         match &self {
             Expr::Binary {
+                left,
+                operator,
+                right,
+            }
+            | Expr::Logical {
                 left,
                 operator,
                 right,
