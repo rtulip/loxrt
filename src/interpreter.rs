@@ -1,8 +1,9 @@
 use crate::ast::{Expr, Stmt};
+use crate::environment::Environment;
 use crate::error::{LoxError, LoxErrorCode};
 use crate::tokens::{Token, TokenType};
-pub struct Interpreter;
 
+#[derive(Clone)]
 pub enum Types {
     Number(f64),
     String(String),
@@ -18,7 +19,7 @@ impl Types {
             _ => true,
         }
     }
-    pub fn number(&self, token: &Token) -> Result<f64, LoxError> {
+    pub fn number(&self, token: &Token) -> Result<f64, Vec<LoxError>> {
         match self {
             Types::Number(f) => Ok(*f),
             _ => LoxError::new(
@@ -29,7 +30,7 @@ impl Types {
         }
     }
 
-    pub fn bool(&self, token: &Token) -> Result<bool, LoxError> {
+    pub fn bool(&self, token: &Token) -> Result<bool, Vec<LoxError>> {
         match self {
             Types::Bool(b) => Ok(*b),
             _ => LoxError::new(
@@ -40,7 +41,7 @@ impl Types {
         }
     }
 
-    pub fn string(&self, token: &Token) -> Result<String, LoxError> {
+    pub fn string(&self, token: &Token) -> Result<String, Vec<LoxError>> {
         match self {
             Types::String(s) => Ok(s.clone()),
             _ => LoxError::new(
@@ -75,8 +76,18 @@ impl std::fmt::Display for Types {
     }
 }
 
+pub struct Interpreter {
+    environment: Environment,
+}
+
 impl Interpreter {
-    pub fn interpret(&self, statements: &Vec<Stmt>) -> Result<(), LoxError> {
+    pub fn new() -> Self {
+        Interpreter {
+            environment: Environment::new(),
+        }
+    }
+
+    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<(), Vec<LoxError>> {
         for stmt in statements {
             self.execute(stmt)?;
         }
@@ -84,7 +95,7 @@ impl Interpreter {
         Ok(())
     }
 
-    pub fn execute(&self, stmt: &Stmt) -> Result<(), LoxError> {
+    pub fn execute(&mut self, stmt: &Stmt) -> Result<(), Vec<LoxError>> {
         match stmt {
             Stmt::Expr { expr } => {
                 self.evaulate(expr)?;
@@ -93,12 +104,24 @@ impl Interpreter {
                 let s = self.evaulate(expr)?;
                 println!("{s}");
             }
+            Stmt::Var { name, expr } => {
+                let mut value = Types::Nil;
+                if let Some(expr) = expr {
+                    value = self.evaulate(expr)?;
+                }
+
+                if let TokenType::Identifier(name) = &name.tok_typ {
+                    self.environment.define(name.clone(), value);
+                } else {
+                    unreachable!()
+                }
+            }
         }
 
         Ok(())
     }
 
-    pub fn evaulate(&self, expression: &Box<Expr>) -> Result<Types, LoxError> {
+    pub fn evaulate(&self, expression: &Box<Expr>) -> Result<Types, Vec<LoxError>> {
         match **expression {
             Expr::Binary {
                 ref left,
@@ -147,19 +170,6 @@ impl Interpreter {
                     _ => LoxError::new(operator.line, format!("Bad binary operator: {}", operator), LoxErrorCode::InterpreterError),
                 }
             }
-            Expr::Grouping { ref expr } => self.evaulate(expr),
-            Expr::Literal { ref value } => match &value.tok_typ {
-                TokenType::Str(s) => Ok(Types::String(s.clone())),
-                TokenType::Number(n) => Ok(Types::Number(*n)),
-                TokenType::False => Ok(Types::Bool(false)),
-                TokenType::True => Ok(Types::Bool(true)),
-                TokenType::Nil => Ok(Types::Nil),
-                _ => LoxError::new(
-                    value.line,
-                    format!("Bad Token Literal: {value}"),
-                    LoxErrorCode::InterpreterError,
-                ),
-            },
             Expr::Unary {
                 ref operator,
                 ref right,
@@ -180,6 +190,33 @@ impl Interpreter {
                         format!("Bad Unary operator {:?}", operator.tok_typ),
                         LoxErrorCode::InterpreterError,
                     ),
+                }
+            }
+            Expr::Grouping { ref expr } => self.evaulate(expr),
+            Expr::Literal { ref value } => match &value.tok_typ {
+                TokenType::Str(s) => Ok(Types::String(s.clone())),
+                TokenType::Number(n) => Ok(Types::Number(*n)),
+                TokenType::False => Ok(Types::Bool(false)),
+                TokenType::True => Ok(Types::Bool(true)),
+                TokenType::Nil => Ok(Types::Nil),
+                _ => LoxError::new(
+                    value.line,
+                    format!("Bad Token Literal: {value}"),
+                    LoxErrorCode::InterpreterError,
+                ),
+            },
+            Expr::Variable { ref value } => {
+                if let TokenType::Identifier(name) = &value.tok_typ {
+                    match self.environment.get(&name) {
+                        Some(val) => Ok(val.clone()),
+                        None => LoxError::new(
+                            value.line,
+                            format!("Unrecognized identifier `{name}`"),
+                            LoxErrorCode::InterpreterError,
+                        ),
+                    }
+                } else {
+                    unreachable!();
                 }
             }
         }

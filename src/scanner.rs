@@ -21,7 +21,7 @@ impl Scanner {
         }
     }
 
-    pub fn scan_tokens(mut self) -> Result<Vec<Token>, LoxError> {
+    pub fn scan_tokens(mut self) -> Result<Vec<Token>, Vec<LoxError>> {
         while !self.is_at_end() {
             self.start = self.current;
             self.scan_token()?;
@@ -36,7 +36,7 @@ impl Scanner {
         self.current >= self.source.len()
     }
 
-    fn scan_token(&mut self) -> Result<(), LoxError> {
+    fn scan_token(&mut self) -> Result<(), Vec<LoxError>> {
         let c = self.advance();
         match c {
             '(' => self.add_token(TokenType::LeftParen),
@@ -138,7 +138,7 @@ impl Scanner {
             .nth(self.current + offset)
             .unwrap_or('\0')
     }
-    fn string(&mut self) -> Result<(), LoxError> {
+    fn string(&mut self) -> Result<(), Vec<LoxError>> {
         while self.peek(0) != '"' && !self.is_at_end() {
             if self.peek(0) == '\n' {
                 self.line += 1;
@@ -163,7 +163,7 @@ impl Scanner {
         Ok(())
     }
 
-    fn number(&mut self) -> Result<(), LoxError> {
+    fn number(&mut self) -> Result<(), Vec<LoxError>> {
         while self.peek(0).is_ascii_digit() {
             self.advance();
         }

@@ -1,4 +1,5 @@
 pub mod ast;
+pub mod environment;
 pub mod error;
 pub mod interpreter;
 pub mod parser;
@@ -17,21 +18,20 @@ impl Lox {
         Lox
     }
 
-    pub fn run_file(&self, path: &str) -> Result<(), LoxError> {
+    pub fn run_file(&self, path: &str) -> Result<(), Vec<LoxError>> {
         let s =
             fs::read_to_string(path).expect(format!("Failed to read from file: {}", path).as_str());
         self.run(s)
     }
 
-    fn run(&self, source: String) -> Result<(), LoxError> {
+    fn run(&self, source: String) -> Result<(), Vec<LoxError>> {
         let scanner = Scanner::new(source);
         let tokens = scanner.scan_tokens()?;
         let mut parser = Parser::new(tokens);
         let statements = parser.parse()?;
 
-        let interpreter = Interpreter;
+        let mut interpreter = Interpreter::new();
         interpreter.interpret(&statements)?;
-        // println!("{}", expr.to_string());
 
         Ok(())
     }
@@ -39,7 +39,13 @@ impl Lox {
 
 fn main() {
     let lox = Lox::new();
-    if let Err(e) = lox.run_file("sample.lox") {
-        e.report();
+    if let Err(errors) = lox.run_file("sample.lox") {
+        for e in &errors {
+            e.report();
+        }
+
+        if let Some(e) = errors.last() {
+            e.exit();
+        }
     }
 }

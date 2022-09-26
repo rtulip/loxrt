@@ -5,7 +5,7 @@ pub enum LoxErrorCode {
 }
 
 impl LoxErrorCode {
-    fn code(self) -> i32 {
+    fn code(&self) -> i32 {
         match self {
             LoxErrorCode::ScannerError => 1,
             LoxErrorCode::InterpreterError => 2,
@@ -21,15 +21,18 @@ pub struct LoxError {
 }
 
 impl LoxError {
-    pub fn new<T>(line: usize, message: String, code: LoxErrorCode) -> Result<T, Self> {
-        Err(LoxError {
+    pub fn new<T>(line: usize, message: String, code: LoxErrorCode) -> Result<T, Vec<Self>> {
+        Err(vec![LoxError {
             line,
             message,
             code,
-        })
+        }])
     }
-    pub fn report(self) {
+    pub fn report(&self) {
         eprintln!("[line {}] Error: {}", self.line, self.message);
+    }
+
+    pub fn exit(&self) {
         std::process::exit(self.code.code())
     }
 }
