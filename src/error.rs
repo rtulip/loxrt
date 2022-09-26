@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub enum LoxErrorCode {
     ScannerError,
     InterpreterError,
@@ -14,6 +15,7 @@ impl LoxErrorCode {
     }
 }
 
+#[derive(Debug)]
 pub struct LoxError {
     line: usize,
     message: String,

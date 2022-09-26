@@ -1,5 +1,6 @@
 use crate::tokens::Token;
 
+#[derive(Debug)]
 pub enum Stmt {
     Expr {
         expr: Box<Expr>,
@@ -25,6 +26,7 @@ pub enum Stmt {
     },
 }
 
+#[derive(Debug)]
 pub enum Expr {
     Binary {
         left: Box<Expr>,
@@ -53,6 +55,11 @@ pub enum Expr {
         operator: Token,
         right: Box<Expr>,
     },
+    Call {
+        callee: Box<Expr>,
+        paren: Token,
+        arguments: Vec<Box<Expr>>,
+    },
 }
 
 impl Expr {
@@ -73,6 +80,16 @@ impl Expr {
             Expr::Literal { value } => format!("{value}"),
             Expr::Variable { name } => format!("{name}"),
             Expr::Assignment { name, value } => format!("{name} = {} ", value.to_string()),
+            Expr::Call {
+                callee, arguments, ..
+            } => {
+                let mut s = format!("{}( ", callee.to_string());
+                for arg in arguments {
+                    s = format!("{s}{} ", arg.to_string());
+                }
+                s = format!("{s})");
+                s
+            }
         }
     }
 }

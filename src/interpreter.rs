@@ -4,13 +4,58 @@ use crate::error::{LoxError, LoxErrorCode};
 use crate::tokens::{Token, TokenType};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::SystemTime;
+
+pub trait Callable {
+    fn airity(&self) -> usize;
+    fn call(
+        &self,
+        interpreter: &mut Interpreter,
+        arguments: Vec<Types>,
+    ) -> Result<Types, Vec<LoxError>>;
+    fn to_string(&self) -> String;
+}
+
+impl<F> Callable for F
+where
+    F: Fn() -> Result<Types, Vec<LoxError>>,
+{
+    fn airity(&self) -> usize {
+        0
+    }
+
+    fn call(
+        &self,
+        _interpreter: &mut Interpreter,
+        _arguments: Vec<Types>,
+    ) -> Result<Types, Vec<LoxError>> {
+        self()
+    }
+
+    fn to_string(&self) -> String {
+        String::from("<native function>")
+    }
+}
 
 #[derive(Clone)]
 pub enum Types {
     Number(f64),
     String(String),
     Bool(bool),
+    Callable(Rc<Box<dyn Callable>>),
     Nil,
+}
+
+impl std::fmt::Debug for Types {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Types::Number(n) => f.debug_tuple("Number").field(n).finish(),
+            Types::String(s) => f.debug_tuple("String").field(s).finish(),
+            Types::Bool(b) => f.debug_tuple("Bool").field(b).finish(),
+            Types::Nil => write!(f, "Nil"),
+            Types::Callable(c) => write!(f, "{}", c.to_string()),
+        }
+    }
 }
 
 impl Types {
@@ -53,6 +98,17 @@ impl Types {
             ),
         }
     }
+
+    pub fn callable(&self, token: &Token) -> Result<Rc<Box<dyn Callable>>, Vec<LoxError>> {
+        match self {
+            Types::Callable(c) => Ok(c.clone()),
+            _ => LoxError::new(
+                token.line,
+                format!("Expected Callable but found {self}"),
+                LoxErrorCode::InterpreterError,
+            ),
+        }
+    }
 }
 
 impl PartialEq for Types {
@@ -74,6 +130,7 @@ impl std::fmt::Display for Types {
             Types::String(s) => write!(f, "{s}"),
             Types::Bool(b) => write!(f, "{b}"),
             Types::Nil => write!(f, "Nil"),
+            Types::Callable(c) => write!(f, "{}", c.to_string()),
         }
     }
 }
@@ -82,11 +139,21 @@ pub struct Interpreter {
     environment: Rc<RefCell<Environment>>,
 }
 
+fn clock() -> Result<Types, Vec<LoxError>> {
+    match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(n) => Ok(Types::Number(n.as_millis() as f64 / 1000.0)),
+        Err(_) => panic!("SystemTime before UNIX EPOCH!"),
+    }
+}
+
 impl Interpreter {
     pub fn new() -> Self {
-        Interpreter {
-            environment: Environment::new(),
-        }
+        let environment = Environment::new();
+        environment.borrow_mut().define(
+            String::from("clock"),
+            Types::Callable(Rc::new(Box::new(clock))),
+        );
+        Interpreter { environment }
     }
 
     pub fn interpret(&mut self, statements: &Vec<Box<Stmt>>) -> Result<(), Vec<LoxError>> {
@@ -271,6 +338,32 @@ impl Interpreter {
                         LoxErrorCode::InterpreterError,
                     ),
                 }
+            }
+            Expr::Call {
+                ref callee,
+                ref arguments,
+                ref paren,
+            } => {
+                let callee = self.evaulate(callee)?;
+                let mut args = vec![];
+                for arg in arguments {
+                    args.push(self.evaulate(arg)?);
+                }
+
+                let function = callee.callable(paren)?;
+
+                if function.airity() != args.len() {
+                    return LoxError::new(
+                        paren.line,
+                        format!(
+                            "Expected {} arguments, but got {}",
+                            function.airity(),
+                            args.len()
+                        ),
+                        LoxErrorCode::InterpreterError,
+                    );
+                }
+                Ok(function.call(self, args)?)
             }
         }
     }
