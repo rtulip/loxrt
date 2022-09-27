@@ -43,6 +43,21 @@ impl Environment {
         }
     }
 
+    pub fn get_at(&self, token: &Token, depth: usize) -> Result<Types, LoxError> {
+        if depth == 0 {
+            self.get(token)
+        } else {
+            if let Some(parent) = &self.parent {
+                parent.borrow().get_at(token, depth - 1)
+            } else {
+                LoxError::new_runtime(
+                    token.line,
+                    format!("Bad depth. Looking for depth {depth}, but no parent found."),
+                )
+            }
+        }
+    }
+
     pub fn set(&mut self, token: &Token, value: Types) -> Result<(), LoxError> {
         if self.values.contains_key(&token.lexeme) {
             *self.values.get_mut(&token.lexeme).unwrap() = value;
@@ -59,6 +74,21 @@ impl Environment {
                 token.line,
                 format!("Undefined variable: `{}`.", token.lexeme),
             )
+        }
+    }
+
+    pub fn set_at(&mut self, token: &Token, value: Types, depth: usize) -> Result<(), LoxError> {
+        if depth == 0 {
+            self.set(token, value)
+        } else {
+            if let Some(parent) = &self.parent {
+                parent.borrow_mut().set_at(token, value, depth - 1)
+            } else {
+                LoxError::new_runtime(
+                    token.line,
+                    format!("Bad depth. Looking for depth {depth}, but no parent found."),
+                )
+            }
         }
     }
 }

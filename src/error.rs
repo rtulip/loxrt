@@ -14,6 +14,7 @@ impl LoxErrorContainer {
 pub enum LoxError {
     ScannerError(LoxErrorContainer),
     ParserErrors(Vec<LoxErrorContainer>),
+    ResolutionError(LoxErrorContainer),
     RuntimeError(LoxErrorContainer),
     ReturnError(Types),
 }
@@ -31,6 +32,12 @@ impl LoxError {
     pub fn new_runtime<T>(line: usize, message: String) -> Result<T, Self> {
         Err(LoxError::RuntimeError(LoxErrorContainer { line, message }))
     }
+    pub fn new_resolution<T>(line: usize, message: String) -> Result<T, Self> {
+        Err(LoxError::ResolutionError(LoxErrorContainer {
+            line,
+            message,
+        }))
+    }
     pub fn new_return<T>(value: Types) -> Result<T, Self> {
         Err(LoxError::ReturnError(value))
     }
@@ -40,13 +47,16 @@ impl LoxError {
             LoxError::ScannerError(_) => 1,
             LoxError::ParserErrors(_) => 2,
             LoxError::RuntimeError(_) => 3,
+            LoxError::ResolutionError(_) => 4,
             LoxError::ReturnError(_) => panic!("Shouldn't try to exit on a return error"),
         }
     }
 
     pub fn report(&self) {
         match self {
-            LoxError::ScannerError(e) | LoxError::RuntimeError(e) => e.report(),
+            LoxError::ScannerError(e)
+            | LoxError::RuntimeError(e)
+            | LoxError::ResolutionError(e) => e.report(),
             LoxError::ParserErrors(es) => {
                 for e in es {
                     e.report()

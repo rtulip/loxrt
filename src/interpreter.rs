@@ -3,6 +3,7 @@ use crate::environment::Environment;
 use crate::error::LoxError;
 use crate::tokens::{Token, TokenType};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::SystemTime;
 
@@ -32,6 +33,12 @@ where
     fn to_string(&self) -> String {
         String::from("<native function>")
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum FunctionKind {
+    None,
+    Function,
 }
 
 struct LoxFunction {
@@ -168,7 +175,8 @@ impl std::fmt::Display for Types {
 
 pub struct Interpreter {
     pub global_env: Rc<RefCell<Environment>>,
-    environment: Rc<RefCell<Environment>>,
+    pub environment: Rc<RefCell<Environment>>,
+    locals: HashMap<String, usize>,
 }
 
 fn clock() -> Result<Types, LoxError> {
@@ -188,6 +196,7 @@ impl Interpreter {
         Interpreter {
             global_env: environment.clone(),
             environment,
+            locals: HashMap::new(),
         }
     }
 
@@ -373,15 +382,23 @@ impl Interpreter {
                 TokenType::Nil => Ok(Types::Nil),
                 _ => LoxError::new_runtime(value.line, format!("Bad Token Literal: {value}")),
             },
-            Expr::Variable { ref name } => Ok(self.environment.borrow().get(&name)?.clone()),
+            Expr::Variable { ref name } => Ok(self.lookup_variable(name, &*expression)?),
             Expr::Assignment {
                 name: ref name_tok,
                 ref value,
             } => {
                 let result_val = self.evaulate(&value)?;
-                self.environment
-                    .borrow_mut()
-                    .set(&name_tok, result_val.clone())?;
+                match self.locals.get(&value.to_string()) {
+                    Some(dist) => {
+                        self.environment
+                            .borrow_mut()
+                            .set_at(name_tok, result_val.clone(), *dist)?
+                    }
+                    None => self
+                        .global_env
+                        .borrow_mut()
+                        .set(name_tok, result_val.clone())?,
+                }
                 Ok(result_val)
             }
             Expr::Logical {
@@ -433,6 +450,17 @@ impl Interpreter {
                 }
                 Ok(function.call(self, args)?)
             }
+        }
+    }
+
+    pub fn resolve(&mut self, expr: &Expr, depth: usize) {
+        self.locals.insert(expr.to_string(), depth);
+    }
+
+    fn lookup_variable(&self, token: &Token, expr: &Expr) -> Result<Types, LoxError> {
+        match self.locals.get(&expr.to_string()) {
+            Some(dist) => self.environment.borrow().get_at(token, *dist),
+            None => self.global_env.borrow().get(token),
         }
     }
 }

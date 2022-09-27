@@ -3,12 +3,14 @@ pub mod environment;
 pub mod error;
 pub mod interpreter;
 pub mod parser;
+pub mod resolver;
 pub mod scanner;
 pub mod tokens;
 
 use error::LoxError;
 use interpreter::Interpreter;
 use parser::Parser;
+use resolver::Resolver;
 use scanner::Scanner;
 use std::fs;
 
@@ -29,7 +31,14 @@ impl Lox {
         let tokens = scanner.scan_tokens()?;
         let mut parser = Parser::new(tokens);
         let statements = parser.parse()?;
+
         let mut interpreter = Interpreter::new();
+
+        {
+            let mut resolver = Resolver::new(&mut interpreter);
+            resolver.resolve(&statements)?;
+        }
+
         interpreter.interpret(&statements)?;
 
         Ok(())
