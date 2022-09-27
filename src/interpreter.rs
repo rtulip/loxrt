@@ -39,6 +39,7 @@ where
 pub enum FunctionKind {
     None,
     Function,
+    Method,
 }
 
 struct LoxFunction {
@@ -91,12 +92,103 @@ impl Callable for LoxFunction {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct LoxClassInstance {
+    base: LoxClass,
+    fields: HashMap<String, Types>,
+}
+
+impl LoxClassInstance {
+    pub fn new(base: LoxClass) -> Self {
+        LoxClassInstance {
+            base,
+            fields: HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, field: &Token) -> Result<Types, LoxError> {
+        if self.fields.contains_key(&field.lexeme) {
+            return Ok(self.fields.get(&field.lexeme).unwrap().clone());
+        }
+        if self.base.methods.contains_key(&field.lexeme) {
+            return Ok(self.base.methods.get(&field.lexeme).unwrap().clone());
+        }
+
+        LoxError::new_runtime(
+            field.line,
+            format!(
+                "Instance of {} doesn't have a field `{}`",
+                self.base.to_string(),
+                field.lexeme
+            ),
+        )
+    }
+
+    pub fn get_mut(&mut self, field: &Token) -> Result<&mut Types, LoxError> {
+        if self.fields.contains_key(&field.lexeme) {
+            return Ok(self.fields.get_mut(&field.lexeme).unwrap());
+        }
+        if self.base.methods.contains_key(&field.lexeme) {
+            return Ok(self.base.methods.get_mut(&field.lexeme).unwrap());
+        }
+
+        LoxError::new_runtime(
+            field.line,
+            format!(
+                "Instance of {} doesn't have a field `{}`",
+                self.base.to_string(),
+                field.lexeme
+            ),
+        )
+    }
+
+    pub fn set_property(&mut self, field: &Token, value: Types) {
+        self.fields.insert(field.lexeme.clone(), value);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LoxClass {
+    name: String,
+    methods: HashMap<String, Types>,
+}
+
+impl LoxClass {
+    pub fn new(name: String, methods: HashMap<String, Types>) -> Self {
+        LoxClass { name, methods }
+    }
+
+    fn new_instance(&self) -> Types {
+        Types::ClassInstance(Rc::new(RefCell::new(LoxClassInstance::new(self.clone()))))
+    }
+}
+
+impl Callable for LoxClass {
+    fn airity(&self) -> usize {
+        0
+    }
+
+    fn call(
+        &self,
+        _interpreter: &mut Interpreter,
+        _arguments: Vec<Types>,
+    ) -> Result<Types, LoxError> {
+        Ok(self.new_instance())
+    }
+
+    fn to_string(&self) -> String {
+        format!("<class {}>", self.name)
+    }
+}
+
 #[derive(Clone)]
 pub enum Types {
     Number(f64),
     String(String),
     Bool(bool),
     Callable(Rc<Box<dyn Callable>>),
+    Class(LoxClass),
+    ClassInstance(Rc<RefCell<LoxClassInstance>>),
     Nil,
 }
 
@@ -106,8 +198,12 @@ impl std::fmt::Debug for Types {
             Types::Number(n) => f.debug_tuple("Number").field(n).finish(),
             Types::String(s) => f.debug_tuple("String").field(s).finish(),
             Types::Bool(b) => f.debug_tuple("Bool").field(b).finish(),
-            Types::Nil => write!(f, "Nil"),
             Types::Callable(c) => write!(f, "{}", c.to_string()),
+            Types::Class(name) => f.debug_tuple("Class").field(name).finish(),
+            Types::ClassInstance(instance) => {
+                f.debug_tuple("ClassInstance").field(instance).finish()
+            }
+            Types::Nil => write!(f, "Nil"),
         }
     }
 }
@@ -144,7 +240,21 @@ impl Types {
     pub fn callable(&self, token: &Token) -> Result<Rc<Box<dyn Callable>>, LoxError> {
         match self {
             Types::Callable(c) => Ok(c.clone()),
+            Types::Class(c) => {
+                let trait_obj: Box<dyn Callable> = Box::new(c.clone());
+                Ok(Rc::new(trait_obj))
+            }
             _ => LoxError::new_runtime(token.line, format!("Expected Callable but found {self}")),
+        }
+    }
+
+    pub fn instance(&self, token: &Token) -> Result<Rc<RefCell<LoxClassInstance>>, LoxError> {
+        match self {
+            Types::ClassInstance(instance) => Ok(instance.clone()),
+            _ => LoxError::new_runtime(
+                token.line,
+                format!("Expected ClassInstance but found {self}"),
+            ),
         }
     }
 }
@@ -167,8 +277,12 @@ impl std::fmt::Display for Types {
             Types::Number(n) => write!(f, "{n}"),
             Types::String(s) => write!(f, "{s}"),
             Types::Bool(b) => write!(f, "{b}"),
-            Types::Nil => write!(f, "Nil"),
+            Types::Class(class) => write!(f, "{}", class.to_string()),
+            Types::ClassInstance(instance) => {
+                write!(f, "instance of {}", instance.borrow().base.to_string())
+            }
             Types::Callable(c) => write!(f, "{}", c.to_string()),
+            Types::Nil => write!(f, "Nil"),
         }
     }
 }
@@ -298,6 +412,32 @@ impl Interpreter {
                 } else {
                     return LoxError::new_return(Types::Nil);
                 }
+            }
+            Stmt::Class { name, methods } => {
+                self.environment
+                    .borrow_mut()
+                    .define(name.lexeme.clone(), Types::Nil);
+
+                let mut mtds: HashMap<String, Types> = HashMap::new();
+                for method in methods {
+                    match &**method {
+                        Stmt::Function { name, params, body } => {
+                            mtds.insert(
+                                name.lexeme.clone(),
+                                LoxFunction::new(
+                                    name.clone(),
+                                    params.clone(),
+                                    body.clone(),
+                                    self.environment.clone(),
+                                ),
+                            );
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+
+                let class = Types::Class(LoxClass::new(name.lexeme.clone(), mtds));
+                self.environment.borrow_mut().set(name, class)?;
             }
         };
 
@@ -450,6 +590,32 @@ impl Interpreter {
                 }
                 Ok(function.call(self, args)?)
             }
+            Expr::Get {
+                ref object,
+                ref name,
+            } => {
+                let obj = self.evaulate(object)?;
+                match obj {
+                    Types::ClassInstance(instance) => Ok(instance.borrow().get(name)?),
+                    _ => LoxError::new_runtime(
+                        name.line,
+                        String::from("Only instance have properties."),
+                    ),
+                }
+            }
+            Expr::Set {
+                ref object,
+                ref value,
+                ref name,
+            } => match self.evaulate(object)? {
+                Types::ClassInstance(instance) => {
+                    instance
+                        .borrow_mut()
+                        .set_property(name, self.evaulate(value)?);
+                    Ok(Types::Nil)
+                }
+                _ => todo!(),
+            },
         }
     }
 

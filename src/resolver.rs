@@ -73,6 +73,18 @@ impl<'a> Resolver<'a> {
                 self.resolve(stmts)?;
                 self.end_scope();
             }
+            Stmt::Class { name, methods } => {
+                self.declare(name)?;
+                for method in methods {
+                    match &**method {
+                        Stmt::Function { params, body, .. } => {
+                            self.resolve_function(params, body, FunctionKind::Method)?;
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                self.define(name);
+            }
         }
 
         Ok(())
@@ -113,6 +125,11 @@ impl<'a> Resolver<'a> {
             Expr::Grouping { expr } => self.resolve_expr(&*expr)?,
             Expr::Literal { .. } => (),
             Expr::Unary { right, .. } => self.resolve_expr(&*right)?,
+            Expr::Get { object, .. } => self.resolve_expr(&*object)?,
+            Expr::Set { object, value, .. } => {
+                self.resolve_expr(object)?;
+                self.resolve_expr(value)?;
+            }
         }
         Ok(())
     }
@@ -167,7 +184,7 @@ impl<'a> Resolver<'a> {
         self.begin_scope();
         for param in params {
             self.declare(param)?;
-            self.declare(param)?;
+            self.define(param);
         }
         self.resolve(body)?;
         self.end_scope();

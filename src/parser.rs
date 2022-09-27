@@ -42,6 +42,9 @@ impl Parser {
         if self.matches(vec![TokenType::Fun]) {
             return self.function("function");
         }
+        if self.matches(vec![TokenType::Class]) {
+            return self.class_declaration();
+        }
         self.statement()
     }
 
@@ -87,6 +90,28 @@ impl Parser {
         let body = self.block()?;
 
         Ok(Box::new(Stmt::Function { name, params, body }))
+    }
+
+    fn class_declaration(&mut self) -> Result<Box<Stmt>, LoxError> {
+        let name = self.consume(
+            TokenType::Identifier(String::new()),
+            String::from("Expected class name."),
+        )?;
+        self.consume(
+            TokenType::LeftBrace,
+            String::from("Expecte `{` before class body."),
+        )?;
+
+        let mut methods = vec![];
+        while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+            methods.push(self.function("method")?);
+        }
+        self.consume(
+            TokenType::RightBrace,
+            String::from("Expected `}` after class body."),
+        )?;
+
+        Ok(Box::new(Stmt::Class { name, methods }))
     }
 
     fn var_declaration(&mut self) -> Result<Box<Stmt>, LoxError> {
@@ -276,16 +301,26 @@ impl Parser {
             let equals = self.previous();
             let assignment = self.assignment()?;
 
-            if let Expr::Variable { name, .. } = *expr {
-                return Ok(Box::new(Expr::Assignment {
-                    name: name.clone(),
-                    value: assignment,
-                }));
-            } else {
-                return LoxError::new_parser(
-                    equals.line,
-                    format!("Invalid assignment target: {}", expr.to_string()),
-                );
+            match *expr {
+                Expr::Variable { name, .. } => {
+                    return Ok(Box::new(Expr::Assignment {
+                        name: name.clone(),
+                        value: assignment,
+                    }));
+                }
+                Expr::Get { object, name } => {
+                    return Ok(Box::new(Expr::Set {
+                        name: name.clone(),
+                        value: assignment,
+                        object,
+                    }))
+                }
+                _ => {
+                    return LoxError::new_parser(
+                        equals.line,
+                        format!("Invalid assignment target: {}", expr.to_string()),
+                    )
+                }
             }
         }
 
@@ -408,6 +443,12 @@ impl Parser {
         loop {
             if self.matches(vec![TokenType::LeftParen]) {
                 expr = self.finish_call(expr)?;
+            } else if self.matches(vec![TokenType::Dot]) {
+                let name = self.consume(
+                    TokenType::Identifier(String::new()),
+                    String::from("Expected property name after `.`."),
+                )?;
+                expr = Box::new(Expr::Get { object: expr, name });
             } else {
                 break;
             }

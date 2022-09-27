@@ -33,6 +33,10 @@ pub enum Stmt {
         keyword: Token,
         value: Option<Box<Expr>>,
     },
+    Class {
+        name: Token,
+        methods: Vec<Box<Stmt>>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +73,15 @@ pub enum Expr {
         paren: Token,
         arguments: Vec<Box<Expr>>,
     },
+    Get {
+        object: Box<Expr>,
+        name: Token,
+    },
+    Set {
+        object: Box<Expr>,
+        name: Token,
+        value: Box<Expr>,
+    },
 }
 
 impl Expr {
@@ -98,6 +111,10 @@ impl Expr {
                 }
                 s = format!("{s})");
                 s
+            }
+            Expr::Get { object, .. } => format!("(get {})", object.to_string()),
+            Expr::Set { object, value, .. } => {
+                format!("(set {} <- {})", object.to_string(), value.to_string())
             }
         }
     }

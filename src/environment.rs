@@ -26,6 +26,14 @@ impl Environment {
         }))
     }
 
+    pub fn get_parent(this: &Rc<RefCell<Self>>, depth: usize) -> Rc<RefCell<Self>> {
+        if depth == 0 {
+            return this.clone();
+        } else {
+            Environment::get_parent(&this.borrow().parent.as_ref().unwrap(), depth - 1)
+        }
+    }
+
     pub fn define(&mut self, name: String, value: Types) {
         self.values.insert(name, value);
     }
