@@ -36,6 +36,7 @@ pub enum Stmt {
     Class {
         name: Token,
         methods: Vec<Box<Stmt>>,
+        superclass: Option<Box<Expr>>,
     },
 }
 
@@ -85,6 +86,10 @@ pub enum Expr {
     This {
         keyword: Token,
     },
+    Super {
+        keyword: Token,
+        method: Token,
+    },
 }
 
 impl Expr {
@@ -120,6 +125,7 @@ impl Expr {
                 format!("(set {} <- {})", object.to_string(), value.to_string())
             }
             Expr::This { keyword } => format!("{keyword}"),
+            Expr::Super { keyword, method } => format!("{keyword}.{method}"),
         }
     }
 }

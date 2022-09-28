@@ -97,6 +97,18 @@ impl Parser {
             TokenType::Identifier(String::new()),
             String::from("Expected class name."),
         )?;
+
+        let mut superclass = None;
+        if self.matches(vec![TokenType::Less]) {
+            self.consume(
+                TokenType::Identifier(String::new()),
+                String::from("Expected superclass name"),
+            )?;
+            superclass = Some(Box::new(Expr::Variable {
+                name: self.previous(),
+            }));
+        }
+
         self.consume(
             TokenType::LeftBrace,
             String::from("Expecte `{` before class body."),
@@ -111,7 +123,11 @@ impl Parser {
             String::from("Expected `}` after class body."),
         )?;
 
-        Ok(Box::new(Stmt::Class { name, methods }))
+        Ok(Box::new(Stmt::Class {
+            name,
+            methods,
+            superclass,
+        }))
     }
 
     fn var_declaration(&mut self) -> Result<Box<Stmt>, LoxError> {
@@ -501,6 +517,15 @@ impl Parser {
                 Ok(Box::new(Expr::Grouping { expr }))
             }
             TokenType::This => Ok(Box::new(Expr::This { keyword: tok })),
+            TokenType::Super => {
+                let keyword = self.previous();
+                self.consume(TokenType::Dot, String::from("Expect `.` after `super`."))?;
+                let method = self.consume(
+                    TokenType::Identifier(String::new()),
+                    String::from("Expected superclass method name"),
+                )?;
+                Ok(Box::new(Expr::Super { keyword, method }))
+            }
             TokenType::Identifier(_) => Ok(Box::new(Expr::Variable { name: tok })),
             _ => LoxError::new_parser(tok.line, format!("Unexpected Token: {}", tok)),
         }

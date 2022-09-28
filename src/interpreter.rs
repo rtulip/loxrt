@@ -191,19 +191,36 @@ impl LoxClassInstance {
 pub struct LoxClass {
     name: String,
     methods: HashMap<String, Types>,
+    superclass: Option<Box<LoxClass>>,
 }
 
 impl LoxClass {
-    pub fn new(name: String, methods: HashMap<String, Types>) -> Self {
-        LoxClass { name, methods }
+    pub fn new(
+        name: String,
+        methods: HashMap<String, Types>,
+        superclass: Option<Box<LoxClass>>,
+    ) -> Self {
+        LoxClass {
+            name,
+            methods,
+            superclass,
+        }
     }
 
     fn new_instance(&self) -> Types {
         Types::ClassInstance(Rc::new(RefCell::new(LoxClassInstance::new(self.clone()))))
     }
 
-    fn find_method(&self, method: &String) -> Option<&Types> {
-        self.methods.get(method)
+    fn find_method(&self, method: &String) -> Option<Types> {
+        if let Some(method) = self.methods.get(method) {
+            return Some(method.clone());
+        }
+
+        if let Some(sc) = &self.superclass {
+            sc.find_method(method)
+        } else {
+            None
+        }
     }
 }
 
@@ -478,10 +495,34 @@ impl Interpreter {
                     return LoxError::new_return(Types::Nil);
                 }
             }
-            Stmt::Class { name, methods } => {
+            Stmt::Class {
+                name,
+                methods,
+                superclass,
+            } => {
                 self.environment
                     .borrow_mut()
                     .define(name.lexeme.clone(), Types::Nil);
+                let superclass = match superclass {
+                    None => None,
+                    Some(superclass) => {
+                        let sc = self.evaulate(superclass)?;
+                        match &sc {
+                            Types::Class(c) => {
+                                let env = Environment::new_child(&self.environment);
+                                env.borrow_mut().define(String::from("super"), sc.clone());
+                                self.environment = env;
+                                Some(Box::new(c.clone()))
+                            }
+                            _ => {
+                                return LoxError::new_runtime(
+                                    name.line,
+                                    String::from("Superclass must be a class"),
+                                )
+                            }
+                        }
+                    }
+                };
 
                 let mut mtds: HashMap<String, Types> = HashMap::new();
                 for method in methods {
@@ -502,7 +543,13 @@ impl Interpreter {
                     }
                 }
 
-                let class = Types::Class(LoxClass::new(name.lexeme.clone(), mtds));
+                let class =
+                    Types::Class(LoxClass::new(name.lexeme.clone(), mtds, superclass.clone()));
+                if superclass.is_some() {
+                    let prev = self.environment.borrow().parent.as_ref().unwrap().clone();
+                    self.environment = prev;
+                }
+
                 self.environment.borrow_mut().set(name, class)?;
             }
         };
@@ -683,6 +730,39 @@ impl Interpreter {
                 _ => todo!(),
             },
             Expr::This { ref keyword } => self.lookup_variable(&keyword, &expression),
+            Expr::Super { ref method, .. } => {
+                let dist = self.locals.get(&expression.to_string()).unwrap();
+                let superclass = if let Types::Class(sc) = self.environment.borrow().get_at(
+                    &Token {
+                        lexeme: String::from("super"),
+                        line: 0,
+                        tok_typ: TokenType::Identifier(String::from("super")),
+                    },
+                    *dist,
+                )? {
+                    sc
+                } else {
+                    unreachable!()
+                };
+
+                let this = self.environment.borrow().get_at(
+                    &Token {
+                        lexeme: String::from("this"),
+                        line: 0,
+                        tok_typ: TokenType::Identifier(String::from("this")),
+                    },
+                    *dist - 1,
+                )?;
+
+                if let Some(Types::Callable(method)) = superclass.find_method(&method.lexeme) {
+                    Ok(method.bind(this))
+                } else {
+                    LoxError::new_runtime(
+                        method.line,
+                        format!("Undefined property `{}`.", method.lexeme),
+                    )
+                }
+            }
         }
     }
 

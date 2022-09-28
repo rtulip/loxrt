@@ -16,6 +16,7 @@ enum FunctionKind {
 enum ClassKind {
     None,
     Class,
+    SubClass,
 }
 
 pub struct Resolver<'a> {
@@ -98,11 +99,36 @@ impl<'a> Resolver<'a> {
                 self.resolve(stmts)?;
                 self.end_scope();
             }
-            Stmt::Class { name, methods } => {
+            Stmt::Class {
+                name,
+                methods,
+                superclass,
+            } => {
                 let enclosing_class = self.class_kind.clone();
                 self.class_kind = ClassKind::Class;
                 self.declare(name)?;
                 self.define(name);
+
+                if let Some(superclass) = superclass {
+                    match &**superclass {
+                        Expr::Variable { name: superclass } => {
+                            if name.lexeme == superclass.lexeme {
+                                return LoxError::new_resolution(
+                                    name.line,
+                                    String::from("A class can't inherit from itself."),
+                                );
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                    self.class_kind = ClassKind::SubClass;
+                    self.resolve_expr(superclass)?;
+                    self.begin_scope();
+                    self.scopes
+                        .last_mut()
+                        .unwrap()
+                        .insert(String::from("super"), true);
+                }
 
                 self.begin_scope();
                 self.scopes
@@ -124,6 +150,10 @@ impl<'a> Resolver<'a> {
                 }
 
                 self.end_scope();
+                if superclass.is_some() {
+                    self.end_scope()
+                }
+
                 self.class_kind = enclosing_class;
             }
         }
@@ -180,6 +210,21 @@ impl<'a> Resolver<'a> {
                 }
                 self.resolve_local(expr, keyword)
             }
+            Expr::Super { keyword, .. } => match self.class_kind {
+                ClassKind::None => {
+                    return LoxError::new_resolution(
+                        keyword.line,
+                        String::from("Can't use `super` outside of a class."),
+                    )
+                }
+                ClassKind::Class => {
+                    return LoxError::new_resolution(
+                        keyword.line,
+                        String::from("Can't use `super` in a class with no superclass."),
+                    )
+                }
+                ClassKind::SubClass => self.resolve_local(expr, keyword),
+            },
         }
         Ok(())
     }
