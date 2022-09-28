@@ -500,6 +500,7 @@ impl Parser {
                 )?;
                 Ok(Box::new(Expr::Grouping { expr }))
             }
+            TokenType::This => Ok(Box::new(Expr::This { keyword: tok })),
             TokenType::Identifier(_) => Ok(Box::new(Expr::Variable { name: tok })),
             _ => LoxError::new_parser(tok.line, format!("Unexpected Token: {}", tok)),
         }

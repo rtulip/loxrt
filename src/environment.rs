@@ -8,7 +8,7 @@ use std::rc::Rc;
 #[derive(Debug)]
 pub struct Environment {
     parent: Option<Rc<RefCell<Environment>>>,
-    values: HashMap<String, Types>,
+    pub values: HashMap<String, Types>,
 }
 
 impl Environment {
@@ -46,7 +46,7 @@ impl Environment {
         } else {
             LoxError::new_runtime(
                 token.line,
-                format!("Undefined variable `{}`.", token.lexeme),
+                format!("Failed to get undefined variable `{}`.", token.lexeme),
             )
         }
     }
@@ -80,7 +80,7 @@ impl Environment {
         } else {
             LoxError::new_runtime(
                 token.line,
-                format!("Undefined variable: `{}`.", token.lexeme),
+                format!("Failed to set undefined variable: `{}`.", token.lexeme),
             )
         }
     }

@@ -36,17 +36,12 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub enum FunctionKind {
-    None,
-    Function,
-    Method,
-}
-
-struct LoxFunction {
+pub struct LoxFunction {
     name: Token,
     params: Vec<Token>,
     body: Vec<Box<Stmt>>,
     closure: Rc<RefCell<Environment>>,
+    is_initializer: bool,
 }
 
 impl LoxFunction {
@@ -55,13 +50,27 @@ impl LoxFunction {
         params: Vec<Token>,
         body: Vec<Box<Stmt>>,
         closure: Rc<RefCell<Environment>>,
+        is_initializer: bool,
     ) -> Types {
-        Types::Callable(Rc::new(Box::new(LoxFunction {
+        Types::Callable(LoxFunction {
             name,
             params,
             body,
             closure,
-        })))
+            is_initializer,
+        })
+    }
+
+    pub fn bind(&self, instance: Types) -> Types {
+        let env = Environment::new_child(&self.closure);
+        env.borrow_mut().define(String::from("this"), instance);
+        LoxFunction::new(
+            self.name.clone(),
+            self.params.clone(),
+            self.body.clone(),
+            env,
+            self.is_initializer,
+        )
     }
 }
 
@@ -81,9 +90,35 @@ impl Callable for LoxFunction {
             .enumerate()
             .for_each(|(i, arg)| env.borrow_mut().define(self.params[i].lexeme.clone(), arg));
         match interpreter.execute_block(&self.body, env) {
-            Err(LoxError::ReturnError(typ)) => return Ok(typ),
-            Err(e) => return Err(e),
-            _ => Ok(Types::Nil),
+            Err(LoxError::ReturnError(typ)) => {
+                if self.is_initializer && typ == Types::Nil {
+                    Ok(self.closure.borrow().get_at(
+                        &Token {
+                            lexeme: String::from("this"),
+                            line: 0,
+                            tok_typ: TokenType::Identifier(String::from("this")),
+                        },
+                        0,
+                    )?)
+                } else {
+                    Ok(typ)
+                }
+            }
+            Err(e) => Err(e),
+            _ => {
+                if self.is_initializer {
+                    Ok(self.closure.borrow().get_at(
+                        &Token {
+                            lexeme: String::from("this"),
+                            line: 0,
+                            tok_typ: TokenType::Identifier(String::from("this")),
+                        },
+                        0,
+                    )?)
+                } else {
+                    Ok(Types::Nil)
+                }
+            }
         }
     }
 
@@ -106,19 +141,24 @@ impl LoxClassInstance {
         }
     }
 
-    pub fn get(&self, field: &Token) -> Result<Types, LoxError> {
-        if self.fields.contains_key(&field.lexeme) {
-            return Ok(self.fields.get(&field.lexeme).unwrap().clone());
+    pub fn get(this: &Rc<RefCell<Self>>, field: &Token) -> Result<Types, LoxError> {
+        if this.borrow().fields.contains_key(&field.lexeme) {
+            return Ok(this.borrow().fields.get(&field.lexeme).unwrap().clone());
         }
-        if self.base.methods.contains_key(&field.lexeme) {
-            return Ok(self.base.methods.get(&field.lexeme).unwrap().clone());
+        if this.borrow().base.methods.contains_key(&field.lexeme) {
+            if let Types::Callable(method) = this.borrow().base.methods.get(&field.lexeme).unwrap()
+            {
+                return Ok(method.bind(Types::ClassInstance(this.clone())));
+            } else {
+                unreachable!();
+            }
         }
 
         LoxError::new_runtime(
             field.line,
             format!(
                 "Instance of {} doesn't have a field `{}`",
-                self.base.to_string(),
+                this.borrow().base.to_string(),
                 field.lexeme
             ),
         )
@@ -161,19 +201,36 @@ impl LoxClass {
     fn new_instance(&self) -> Types {
         Types::ClassInstance(Rc::new(RefCell::new(LoxClassInstance::new(self.clone()))))
     }
+
+    fn find_method(&self, method: &String) -> Option<&Types> {
+        self.methods.get(method)
+    }
 }
 
 impl Callable for LoxClass {
     fn airity(&self) -> usize {
-        0
+        if let Some(Types::Callable(initializer)) = self.find_method(&String::from("init")) {
+            initializer.airity()
+        } else {
+            0
+        }
     }
 
     fn call(
         &self,
-        _interpreter: &mut Interpreter,
-        _arguments: Vec<Types>,
+        interpreter: &mut Interpreter,
+        arguments: Vec<Types>,
     ) -> Result<Types, LoxError> {
-        Ok(self.new_instance())
+        let instance = self.new_instance();
+        if let Some(Types::Callable(initializer)) = self.find_method(&String::from("init")) {
+            if let Types::Callable(bound) = initializer.bind(instance) {
+                bound.call(interpreter, arguments)
+            } else {
+                unreachable!()
+            }
+        } else {
+            Ok(instance)
+        }
     }
 
     fn to_string(&self) -> String {
@@ -186,7 +243,8 @@ pub enum Types {
     Number(f64),
     String(String),
     Bool(bool),
-    Callable(Rc<Box<dyn Callable>>),
+    NativeFunc(Rc<Box<dyn Callable>>),
+    Callable(LoxFunction),
     Class(LoxClass),
     ClassInstance(Rc<RefCell<LoxClassInstance>>),
     Nil,
@@ -198,6 +256,7 @@ impl std::fmt::Debug for Types {
             Types::Number(n) => f.debug_tuple("Number").field(n).finish(),
             Types::String(s) => f.debug_tuple("String").field(s).finish(),
             Types::Bool(b) => f.debug_tuple("Bool").field(b).finish(),
+            Types::NativeFunc(func) => write!(f, "{}", func.to_string()),
             Types::Callable(c) => write!(f, "{}", c.to_string()),
             Types::Class(name) => f.debug_tuple("Class").field(name).finish(),
             Types::ClassInstance(instance) => {
@@ -239,11 +298,15 @@ impl Types {
 
     pub fn callable(&self, token: &Token) -> Result<Rc<Box<dyn Callable>>, LoxError> {
         match self {
-            Types::Callable(c) => Ok(c.clone()),
+            Types::Callable(c) => {
+                let trait_obj: Box<dyn Callable> = Box::new(c.clone());
+                Ok(Rc::new(trait_obj))
+            }
             Types::Class(c) => {
                 let trait_obj: Box<dyn Callable> = Box::new(c.clone());
                 Ok(Rc::new(trait_obj))
             }
+            Types::NativeFunc(f) => Ok(f.clone()),
             _ => LoxError::new_runtime(token.line, format!("Expected Callable but found {self}")),
         }
     }
@@ -282,6 +345,7 @@ impl std::fmt::Display for Types {
                 write!(f, "instance of {}", instance.borrow().base.to_string())
             }
             Types::Callable(c) => write!(f, "{}", c.to_string()),
+            Types::NativeFunc(func) => write!(f, "{}", func.to_string()),
             Types::Nil => write!(f, "Nil"),
         }
     }
@@ -305,7 +369,7 @@ impl Interpreter {
         let environment = Environment::new();
         environment.borrow_mut().define(
             String::from("clock"),
-            Types::Callable(Rc::new(Box::new(clock))),
+            Types::NativeFunc(Rc::new(Box::new(clock))),
         );
         Interpreter {
             global_env: environment.clone(),
@@ -400,6 +464,7 @@ impl Interpreter {
                     params.clone(),
                     body.clone(),
                     self.environment.clone(),
+                    false,
                 );
                 self.environment
                     .borrow_mut()
@@ -429,6 +494,7 @@ impl Interpreter {
                                     params.clone(),
                                     body.clone(),
                                     self.environment.clone(),
+                                    if name.lexeme == "init" { true } else { false },
                                 ),
                             );
                         }
@@ -596,7 +662,7 @@ impl Interpreter {
             } => {
                 let obj = self.evaulate(object)?;
                 match obj {
-                    Types::ClassInstance(instance) => Ok(instance.borrow().get(name)?),
+                    Types::ClassInstance(instance) => Ok(LoxClassInstance::get(&instance, name)?),
                     _ => LoxError::new_runtime(
                         name.line,
                         String::from("Only instance have properties."),
@@ -616,6 +682,7 @@ impl Interpreter {
                 }
                 _ => todo!(),
             },
+            Expr::This { ref keyword } => self.lookup_variable(&keyword, &expression),
         }
     }
 

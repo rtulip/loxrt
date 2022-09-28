@@ -1,13 +1,28 @@
 use crate::ast::{Expr, Stmt};
 use crate::error::LoxError;
-use crate::interpreter::{FunctionKind, Interpreter};
+use crate::interpreter::Interpreter;
 use crate::tokens::Token;
 use std::collections::HashMap;
+
+#[derive(Debug, Clone)]
+enum FunctionKind {
+    None,
+    Function,
+    Method,
+    Initializer,
+}
+
+#[derive(Debug, Clone)]
+enum ClassKind {
+    None,
+    Class,
+}
 
 pub struct Resolver<'a> {
     interpreter: &'a mut Interpreter,
     scopes: Vec<HashMap<String, bool>>,
     function_kind: FunctionKind,
+    class_kind: ClassKind,
 }
 
 impl<'a> Resolver<'a> {
@@ -16,6 +31,7 @@ impl<'a> Resolver<'a> {
             interpreter,
             scopes: vec![],
             function_kind: FunctionKind::None,
+            class_kind: ClassKind::None,
         }
     }
     pub fn resolve(&mut self, statements: &Vec<Box<Stmt>>) -> Result<(), LoxError> {
@@ -45,18 +61,27 @@ impl<'a> Resolver<'a> {
                 }
             }
             Stmt::Print { expr } => self.resolve_expr(&*expr)?,
-            Stmt::Return { keyword, value } => {
-                if let FunctionKind::None = self.function_kind {
+            Stmt::Return { keyword, value } => match self.function_kind {
+                FunctionKind::None => {
                     return LoxError::new_resolution(
                         keyword.line,
                         String::from("Can't return from top-level code."),
-                    );
+                    )
                 }
-
-                if let Some(value) = value {
-                    self.resolve_expr(&*value)?;
+                FunctionKind::Initializer => {
+                    if value.is_some() {
+                        return LoxError::new_resolution(
+                            keyword.line,
+                            String::from("Cannot return a value from an initializer"),
+                        );
+                    }
                 }
-            }
+                FunctionKind::Method | FunctionKind::Function => {
+                    if let Some(value) = value {
+                        self.resolve_expr(&*value)?;
+                    }
+                }
+            },
             Stmt::While { condition, body } => {
                 self.resolve_expr(&*condition)?;
                 self.resolve_stmt(&*body)?;
@@ -74,16 +99,32 @@ impl<'a> Resolver<'a> {
                 self.end_scope();
             }
             Stmt::Class { name, methods } => {
+                let enclosing_class = self.class_kind.clone();
+                self.class_kind = ClassKind::Class;
                 self.declare(name)?;
+                self.define(name);
+
+                self.begin_scope();
+                self.scopes
+                    .last_mut()
+                    .unwrap()
+                    .insert(String::from("this"), true);
                 for method in methods {
                     match &**method {
-                        Stmt::Function { params, body, .. } => {
-                            self.resolve_function(params, body, FunctionKind::Method)?;
+                        Stmt::Function { params, body, name } => {
+                            let kind = if name.lexeme == "init" {
+                                FunctionKind::Initializer
+                            } else {
+                                FunctionKind::Method
+                            };
+                            self.resolve_function(params, body, kind)?;
                         }
                         _ => unreachable!(),
                     }
                 }
-                self.define(name);
+
+                self.end_scope();
+                self.class_kind = enclosing_class;
             }
         }
 
@@ -130,6 +171,15 @@ impl<'a> Resolver<'a> {
                 self.resolve_expr(object)?;
                 self.resolve_expr(value)?;
             }
+            Expr::This { keyword } => {
+                if let ClassKind::None = self.class_kind {
+                    return LoxError::new_resolution(
+                        keyword.line,
+                        String::from("Cannot use `this` outside of a class."),
+                    );
+                }
+                self.resolve_local(expr, keyword)
+            }
         }
         Ok(())
     }
@@ -166,7 +216,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_local(&mut self, expr: &Expr, name: &Token) {
-        for (i, scope) in self.scopes.iter().enumerate().rev() {
+        for (i, scope) in self.scopes.iter().rev().enumerate() {
             if scope.contains_key(&name.lexeme) {
                 self.interpreter.resolve(expr, i);
             }

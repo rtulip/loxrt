@@ -82,6 +82,9 @@ pub enum Expr {
         name: Token,
         value: Box<Expr>,
     },
+    This {
+        keyword: Token,
+    },
 }
 
 impl Expr {
@@ -116,6 +119,7 @@ impl Expr {
             Expr::Set { object, value, .. } => {
                 format!("(set {} <- {})", object.to_string(), value.to_string())
             }
+            Expr::This { keyword } => format!("{keyword}"),
         }
     }
 }
